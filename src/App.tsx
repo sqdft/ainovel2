@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
 import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo } from './types';
 import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle } from './services/aiService';
@@ -35,10 +35,14 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
     }
   });
 
+  const storedValueRef = useRef(storedValue);
+  storedValueRef.current = storedValue;
+
   const setValue = (value: T | ((val: T) => T)) => {
     try {
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      const valueToStore = value instanceof Function ? value(storedValueRef.current) : value;
       setStoredValue(valueToStore);
+      storedValueRef.current = valueToStore;
       window.localStorage.setItem(key, JSON.stringify(valueToStore));
     } catch (error) {
       console.warn('Error setting localStorage', error);
@@ -193,15 +197,19 @@ export default function App() {
     }
 
     setIsGenerating(true);
+    
+    let currentChapters = { ...chapters };
+
     for (const item of toGenerate) {
       setGeneratingChapterNum(item.chapterNumber);
       setActiveChapterNum(item.chapterNumber);
       try {
         const previousContents: string[] = [];
         for (let i = 1; i < item.chapterNumber; i++) {
-          if (chapters[i]) previousContents.push(chapters[i]);
+          if (currentChapters[i]) previousContents.push(currentChapters[i]);
         }
         const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings);
+        currentChapters = { ...currentChapters, [item.chapterNumber]: content };
         setChapters(prev => ({ ...prev, [item.chapterNumber]: content }));
       } catch (error: any) {
         alert(`生成第${item.chapterNumber}章失败: ${error.message}`);
