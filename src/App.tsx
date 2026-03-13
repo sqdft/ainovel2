@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
 import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo } from './types';
 import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle } from './services/aiService';
 
@@ -24,14 +24,39 @@ const LENGTHS = [
   { label: '长篇 (300章)', value: 'long', count: 300 },
 ];
 
+function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.warn('Error reading localStorage', error);
+      return initialValue;
+    }
+  });
+
+  const setValue = (value: T | ((val: T) => T)) => {
+    try {
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      window.localStorage.setItem(key, JSON.stringify(valueToStore));
+    } catch (error) {
+      console.warn('Error setting localStorage', error);
+    }
+  };
+
+  return [storedValue, setValue];
+}
+
 export default function App() {
-  const [mode, setMode] = useState<Mode>('novel');
-  const [activeTab, setActiveTab] = useState<Tab>('settings');
+  const [mode, setMode] = useLocalStorage<Mode>('ai_novel_mode', 'novel');
+  const [activeTab, setActiveTab] = useLocalStorage<Tab>('ai_novel_activeTab', 'settings');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingChapterNum, setGeneratingChapterNum] = useState<number | null>(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Settings State
-  const [settings, setSettings] = useState<Settings>({
+  const [settings, setSettings] = useLocalStorage<Settings>('ai_novel_settings', {
     provider: 'gemini',
     apiKey: '',
     baseUrl: PROVIDERS['gemini'].baseUrl,
@@ -40,7 +65,7 @@ export default function App() {
   });
 
   // Novel State
-  const [bookInfo, setBookInfo] = useState<BookInfo>({
+  const [bookInfo, setBookInfo] = useLocalStorage<BookInfo>('ai_novel_bookInfo', {
     title: '',
     themes: [NOVEL_THEMES[0]],
     lengthType: 'short',
@@ -48,20 +73,20 @@ export default function App() {
     outline: '',
     worldbuilding: '',
   });
-  const [characters, setCharacters] = useState<Character[]>([]);
-  const [toc, setToc] = useState<TOCItem[]>([]);
-  const [chapters, setChapters] = useState<Record<number, string>>({});
-  const [activeChapterNum, setActiveChapterNum] = useState<number | null>(null);
+  const [characters, setCharacters] = useLocalStorage<Character[]>('ai_novel_characters', []);
+  const [toc, setToc] = useLocalStorage<TOCItem[]>('ai_novel_toc', []);
+  const [chapters, setChapters] = useLocalStorage<Record<number, string>>('ai_novel_chapters', {});
+  const [activeChapterNum, setActiveChapterNum] = useLocalStorage<number | null>('ai_novel_activeChapterNum', null);
 
   // Short Story State
-  const [shortStoryInfo, setShortStoryInfo] = useState<ShortStoryInfo>({
+  const [shortStoryInfo, setShortStoryInfo] = useLocalStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
     title: '',
     themes: [SHORT_STORY_THEMES[0]],
     targetWordCount: 10000,
     outline: '',
     content: ''
   });
-  const [shortStoryTitleOptions, setShortStoryTitleOptions] = useState<string[]>([]);
+  const [shortStoryTitleOptions, setShortStoryTitleOptions] = useLocalStorage<string[]>('ai_novel_shortStoryTitleOptions', []);
 
   // Handlers
   const handleProviderChange = (provider: Provider) => {
@@ -800,6 +825,16 @@ export default function App() {
     );
   };
 
+  const handleReset = () => {
+    if (showResetConfirm) {
+      window.localStorage.clear();
+      window.location.reload();
+    } else {
+      setShowResetConfirm(true);
+      setTimeout(() => setShowResetConfirm(false), 3000);
+    }
+  };
+
   const navItems = mode === 'novel' 
     ? [
         { id: 'settings', icon: SettingsIcon, label: '设置' },
@@ -857,7 +892,17 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-zinc-100">
+        <div className="p-4 border-t border-zinc-100 space-y-3">
+          <a
+            href="#"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
+          >
+            <Globe className="w-4 h-4" />
+            <span className="hidden md:block">我的博客</span>
+          </a>
+          
           <button
             onClick={handleDownload}
             disabled={(mode === 'novel' && Object.keys(chapters).length === 0) || (mode === 'shortStory' && !shortStoryInfo.content)}
@@ -866,6 +911,21 @@ export default function App() {
             <Download className="w-4 h-4" />
             <span className="hidden md:block">导出全书</span>
           </button>
+          
+          <div className="flex items-center justify-end px-1 mt-1">
+            <button
+              onClick={handleReset}
+              className={`text-[11px] flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
+                showResetConfirm 
+                  ? 'bg-red-100 text-red-700 font-medium' 
+                  : 'text-zinc-400 hover:text-red-600 hover:bg-red-50'
+              }`}
+              title="重置所有数据"
+            >
+              <RefreshCw className={`w-3 h-3 ${showResetConfirm ? 'animate-spin' : ''}`} />
+              <span className="hidden md:block">{showResetConfirm ? '确认?' : '重置'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
