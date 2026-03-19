@@ -11,7 +11,7 @@ export interface Settings {
 export interface BookInfo {
   title: string;
   themes: string[];
-  lengthType: 'short' | 'medium' | 'long';
+  lengthType: '100' | '200' | '300' | '400' | '500';
   targetChapterCount: number;
   outline: string;
   worldbuilding: string;

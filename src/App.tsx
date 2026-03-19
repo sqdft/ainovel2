@@ -15,13 +15,19 @@ const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: strin
   custom: { label: '自定义 (OpenAI 兼容)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
 };
 
-const NOVEL_THEMES = ['玄幻修仙', '重生复仇', '系统无敌', '科幻未来', '都市异能', '悬疑推理', '浪漫言情', '历史穿越', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说'];
-const SHORT_STORY_THEMES = ['现代爱情', '婚姻伦理', '白月光', '都市生活', '青春校园', '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险'];
+const NOVEL_THEMES = [
+  '玄幻修仙', '重生复仇', '系统无敌', '科幻未来', '都市异能', '悬疑推理', '浪漫言情', '历史穿越', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说',
+  '脑洞大开', '无敌爽文', '战神赘婿', '神豪暴富', '灵气复苏', '末世求生', '规则怪谈', '诡异流', '历史脑洞',
+  '甜宠高甜', '虐恋情深', '穿书女配', '种田经商', '娱乐圈', '团宠萌宝', '宫斗宅斗', '快穿打脸', '真假千金', '霸道总裁'
+];
+const SHORT_STORY_THEMES = ['现代爱情', '婚姻伦理', '白月光', '都市生活', '青春校园', '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '脑洞反转', '知乎风', '复仇虐渣', '甜文日常', '世情故事'];
 
 const LENGTHS = [
-  { label: '短篇 (100章)', value: 'short', count: 100 },
-  { label: '中篇 (200章)', value: 'medium', count: 200 },
-  { label: '长篇 (300章)', value: 'long', count: 300 },
+  { label: '短篇 (100章)', value: '100', count: 100 },
+  { label: '中短篇 (200章)', value: '200', count: 200 },
+  { label: '中篇 (300章)', value: '300', count: 300 },
+  { label: '中长篇 (400章)', value: '400', count: 400 },
+  { label: '长篇 (500章)', value: '500', count: 500 },
 ];
 
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
@@ -72,7 +78,7 @@ export default function App() {
   const [bookInfo, setBookInfo] = useLocalStorage<BookInfo>('ai_novel_bookInfo', {
     title: '',
     themes: [NOVEL_THEMES[0]],
-    lengthType: 'short',
+    lengthType: '100',
     targetChapterCount: 100,
     outline: '',
     worldbuilding: '',
@@ -102,7 +108,7 @@ export default function App() {
     });
   };
 
-  const handleLengthChange = (lengthType: 'short' | 'medium' | 'long') => {
+  const handleLengthChange = (lengthType: '100' | '200' | '300' | '400' | '500') => {
     const count = LENGTHS.find(l => l.value === lengthType)?.count || 100;
     setBookInfo({ ...bookInfo, lengthType, targetChapterCount: count });
   };
@@ -175,7 +181,7 @@ export default function App() {
         if (chapters[i]) previousContents.push(chapters[i]);
       }
 
-      const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings);
+      const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings, toc);
       setChapters(prev => ({ ...prev, [chapterNum]: content }));
       setActiveChapterNum(chapterNum);
       setActiveTab('chapters');
@@ -208,7 +214,7 @@ export default function App() {
         for (let i = 1; i < item.chapterNumber; i++) {
           if (currentChapters[i]) previousContents.push(currentChapters[i]);
         }
-        const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings);
+        const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings, toc);
         currentChapters = { ...currentChapters, [item.chapterNumber]: content };
         setChapters(prev => ({ ...prev, [item.chapterNumber]: content }));
       } catch (error: any) {
@@ -301,36 +307,51 @@ export default function App() {
   };
 
   // Common UI
-  const renderThemeSelector = (availableThemes: string[], selectedThemes: string[], onChange: (themes: string[]) => void) => (
-    <div>
-      <label className="block text-sm font-medium text-zinc-700 mb-2">主题 (可多选，最多3个)</label>
-      <div className="flex flex-wrap gap-2">
-        {availableThemes.map(theme => {
-          const isSelected = selectedThemes.includes(theme);
-          return (
-            <button
-              key={theme}
-              onClick={() => {
-                if (isSelected) {
-                  if (selectedThemes.length > 1) onChange(selectedThemes.filter(t => t !== theme));
-                } else {
-                  if (selectedThemes.length < 3) onChange([...selectedThemes, theme]);
-                  else alert('最多只能选择3个主题');
-                }
-              }}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                isSelected 
-                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
-                  : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
-              }`}
+  const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availableThemes: string[], selectedThemes: string[], onChange: (themes: string[]) => void }) => {
+    const [showAll, setShowAll] = useState(false);
+    const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 12);
+
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium text-zinc-700">主题 (可多选，最多3个)</label>
+          {availableThemes.length > 12 && (
+            <button 
+              onClick={() => setShowAll(!showAll)}
+              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
             >
-              {theme}
+              {showAll ? '收起' : '展示全部'}
             </button>
-          );
-        })}
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {displayThemes.map(theme => {
+            const isSelected = selectedThemes.includes(theme);
+            return (
+              <button
+                key={theme}
+                onClick={() => {
+                  if (isSelected) {
+                    if (selectedThemes.length > 1) onChange(selectedThemes.filter(t => t !== theme));
+                  } else {
+                    if (selectedThemes.length < 3) onChange([...selectedThemes, theme]);
+                    else alert('最多只能选择3个主题');
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  isSelected 
+                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                    : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
+                }`}
+              >
+                {theme}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // Renderers
   const renderSettings = () => (
@@ -428,7 +449,11 @@ export default function App() {
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
-            {renderThemeSelector(SHORT_STORY_THEMES, shortStoryInfo.themes, (themes) => setShortStoryInfo({...shortStoryInfo, themes}))}
+            <ThemeSelector 
+              availableThemes={SHORT_STORY_THEMES} 
+              selectedThemes={shortStoryInfo.themes} 
+              onChange={(themes) => setShortStoryInfo({...shortStoryInfo, themes})} 
+            />
             
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 md:col-span-1">
@@ -514,14 +539,18 @@ export default function App() {
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
-          {renderThemeSelector(NOVEL_THEMES, bookInfo.themes, (themes) => setBookInfo({...bookInfo, themes}))}
+          <ThemeSelector 
+            availableThemes={NOVEL_THEMES} 
+            selectedThemes={bookInfo.themes} 
+            onChange={(themes) => setBookInfo({...bookInfo, themes})} 
+          />
           
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">小说篇幅</label>
               <select 
                 value={bookInfo.lengthType}
-                onChange={(e) => handleLengthChange(e.target.value as any)}
+                onChange={(e) => handleLengthChange(e.target.value as '100' | '200' | '300' | '400' | '500')}
                 className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               >
                 {LENGTHS.map(l => (

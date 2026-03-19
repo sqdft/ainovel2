@@ -67,7 +67,7 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
 }
 
 export async function generateBookInfo(currentBookInfo: BookInfo, settings: Settings): Promise<Partial<BookInfo>> {
-  const lengthText = currentBookInfo.lengthType === 'short' ? '短篇(100章)' : currentBookInfo.lengthType === 'medium' ? '中篇(200章)' : '长篇(300章)';
+  const lengthText = `${currentBookInfo.lengthType}章`;
   const prompt = `请帮我构思一本小说。
 【用户设定】
 主题：${currentBookInfo.themes.join('、')}
@@ -134,16 +134,24 @@ export async function generateChapterContent(
   characters: Character[],
   tocItem: TOCItem,
   previousChapters: string[],
-  settings: Settings
+  settings: Settings,
+  toc: TOCItem[]
 ): Promise<string> {
   const charsStr = characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n');
   
   let prompt = `你是一位顶尖的小说家。请根据以下设定撰写小说的第 ${tocItem.chapterNumber} 章：${tocItem.title}。
 
-【要求】
+【核心要求】
 1. 本章字数必须**不少于 ${settings.minWordCount} 字**。请充分展开细节、对话、环境描写和心理活动。
-2. 紧扣本章摘要推进剧情。
-3. 直接输出小说正文，不要包含任何标题、问候语、总结或多余的解释。
+2. 紧扣本章摘要推进剧情，将摘要扩写为充满画面感的具体情节。绝对不要像写大纲一样一笔带过。
+3. 直接输出小说正文，绝对不要包含任何标题（如“第X章”）、问候语、总结或多余的解释。
+
+【防重复与去AI味指令】（极其重要！）
+1. **拒绝套路化开头/结尾**：绝对不要在章节开头进行“前情提要”或总结式的抒情；绝对不要在章节结尾进行“人生感悟”或“剧情总结”。
+2. **结尾悬念（断章）**：章节结尾必须卡在一个具体的动作、一句关键对话或一个突发事件上，戛然而止，不要把话说完，留下悬念。
+3. **禁用高频AI词汇**：禁用“只见”、“就在这时”、“然而”、“不禁”、“顿时”、“不由得”等词汇。丰富你的句式。
+4. **自然衔接**：如果是续写，请直接从上一章的结尾场景自然过渡，不要重新介绍已经出场的人物背景或重复上一章的动作。
+5. **多描写，少叙述**：用具体的动作、神态、对话和环境交互来推动剧情，而不是用大段的旁白去总结发生了什么。
 
 【书籍信息】
 书名：${bookInfo.title}
@@ -159,13 +167,17 @@ ${tocItem.summary}
 `;
 
   if (previousChapters.length > 0) {
-    prompt += `\n【前文回顾】\n为了保持剧情连贯，以下是前几章的简要内容：\n`;
-    previousChapters.forEach((chap, index) => {
-      // Only include the last 3 chapters to save tokens
-      if (index >= previousChapters.length - 3) {
-        prompt += `--- 第 ${index + 1} 章 ---\n${chap.substring(0, 300)}...\n`;
-      }
+    prompt += `\n【前文回顾】\n为了保持长线剧情连贯，以下是前几章的剧情摘要：\n`;
+    
+    // 获取最近3章的摘要
+    const recentTocItems = toc.filter(t => t.chapterNumber < tocItem.chapterNumber).slice(-3);
+    recentTocItems.forEach(t => {
+      prompt += `第${t.chapterNumber}章摘要：${t.summary}\n`;
     });
+
+    prompt += `\n为了保证章节之间的自然衔接，以下是上一章结尾的部分正文，请**直接顺着上一章的结尾继续往下写**，不要重复上一章的内容：\n`;
+    const lastChapter = previousChapters[previousChapters.length - 1];
+    prompt += `--- 上一章结尾 ---\n...${lastChapter.slice(-500)}\n`;
   }
 
   const responseText = await callAI(prompt, settings, false);
@@ -211,6 +223,12 @@ export async function generateShortStoryContent(
 1. 充分展开细节、对话、环境描写和心理活动。
 2. 直接输出正文，不要包含任何标题、问候语、总结或多余的解释。
 3. 如果由于字数限制无法一次性写完，请在合适的剧情节点自然暂停，后续我会让你继续写。
+
+【防重复与质量优化要求】（非常重要！）
+1. **拒绝套路化开头/结尾**：不要在开头进行总结式的抒情；不要在结尾进行刻意的悬念总结或人生感悟。顺着剧情自然地切入和结束。
+2. **避免句式重复**：不要频繁使用相同的句式结构，丰富你的词汇和表达方式。
+3. **自然衔接**：如果是续写，请直接从前文的结尾场景自然过渡，不要重新介绍已经出场的人物背景或重复前文的动作。
+4. **细节驱动**：用具体的动作、神态、对话和环境交互来推动剧情，而不是用大段的旁白总结。
 `;
 
   if (existingContent) {
