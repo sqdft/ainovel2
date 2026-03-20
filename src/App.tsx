@@ -931,7 +931,7 @@ export default function App() {
 
         <div className="p-4 border-t border-zinc-100 space-y-3">
           <a
-            href="#"
+            href="https://www.xiaoyang.zone.id"
             target="_blank"
             rel="noopener noreferrer"
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
