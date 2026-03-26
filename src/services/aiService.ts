@@ -67,21 +67,35 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
 }
 
 export async function generateBookInfo(currentBookInfo: BookInfo, settings: Settings): Promise<Partial<BookInfo>> {
-  const lengthText = `${currentBookInfo.lengthType}章`;
-  const prompt = `请帮我构思一本小说。
-【用户设定】
-主题：${currentBookInfo.themes.join('、')}
-篇幅：${lengthText}
+  const lengthText = `${currentBookInfo.targetChapterCount}章`;
+  
+  let existingInfo = '';
+  if (currentBookInfo.title) existingInfo += `\n已有书名：${currentBookInfo.title}`;
+  if (currentBookInfo.outline) existingInfo += `\n已有大纲：${currentBookInfo.outline}`;
+  if (currentBookInfo.worldbuilding) existingInfo += `\n已有世界观：${currentBookInfo.worldbuilding}`;
 
-请提供书名、故事大纲和世界观设定。
+  const prompt = `请帮我构思或完善一本小说设定。
+【基本设定】
+主题：${currentBookInfo.themes.join('、')}
+篇幅：${lengthText}${existingInfo ? `\n\n【已有内容参考】\n请基于以下已有内容进行扩写、润色或补充，绝对不要完全推翻重写：${existingInfo}` : ''}
+
+请提供完整的书名、故事大纲和世界观设定。
+- 如果已有书名，请保留或微微润色；如果没有，请生成一个吸引人的书名。
+- 如果已有大纲/世界观，请在此基础上扩写细节，使其更丰满（大纲约300字，世界观约200字）；如果没有，请发挥创意生成。
+
 请严格以 JSON 格式返回一个对象，包含以下字段：
 - title (字符串): 书名
-- outline (字符串): 故事大纲（约300字）
-- worldbuilding (字符串): 世界观设定（约200字）
+- outline (字符串): 故事大纲
+- worldbuilding (字符串): 世界观设定
 不要输出其他任何解释性文字。`;
 
   const responseText = await callAI(prompt, settings, true);
-  return extractJSON(responseText) as Partial<BookInfo>;
+  const data = extractJSON(responseText);
+  return {
+    title: data.title || currentBookInfo.title,
+    outline: data.outline || currentBookInfo.outline,
+    worldbuilding: data.worldbuilding || currentBookInfo.worldbuilding
+  };
 }
 
 export async function generateCharacters(bookInfo: BookInfo, settings: Settings): Promise<Character[]> {
@@ -112,12 +126,38 @@ export async function generateTOC(bookInfo: BookInfo, characters: Character[], s
     ? `\n【已生成的章节标题（请务必避免重复）】\n${existingTitles.join(' | ')}\n` 
     : '';
 
+  const progressPercentage = Math.round((endIndex / bookInfo.targetChapterCount) * 100);
+  const remainingChapters = bookInfo.targetChapterCount - endIndex;
+  
+  let pacingInstruction = '';
+  if (endIndex === bookInfo.targetChapterCount) {
+    pacingInstruction = `【🚨 完结红色警告 🚨】
+当前正在生成全书的最后 ${endIndex - startIndex + 1} 章大纲（第 ${startIndex} 章至第 ${endIndex} 章）。
+注意：第 ${endIndex} 章就是全书的【最终大结局】！
+请务必在本批次大纲中：
+1. 彻底解决所有核心冲突，填平所有伏笔。
+2. 第 ${endIndex} 章必须是真正的大结局，给故事画上圆满句号。
+3. 绝对、绝对不要再引入任何新人物、新矛盾或新剧情分支！`;
+  } else if (remainingChapters <= 10) {
+    pacingInstruction = `【⚠️ 终局收网阶段 ⚠️】
+距离全书完结（第 ${bookInfo.targetChapterCount} 章）仅剩最后 ${remainingChapters} 章！
+请开始全面收网，解决次要矛盾，将所有线索和角色汇聚向最终决战或大结局。切忌再展开新地图或新剧情！`;
+  } else if (progressPercentage >= 60) {
+    pacingInstruction = `【🔥 剧情高潮阶段 🔥】
+当前进度约 ${progressPercentage}%。请围绕大纲展开核心冲突，安排高潮事件，深化人物关系，剧情节奏加快。`;
+  } else {
+    pacingInstruction = `【🌱 剧情铺垫/发展阶段 🌱】
+当前进度约 ${progressPercentage}%。请稳步推进剧情，铺陈世界观，引出核心矛盾，设置悬念，吸引读者。`;
+  }
+
   const prompt = `根据以下小说设定和人物，生成第 ${startIndex} 章到第 ${endIndex} 章的目录大纲。
 【书籍信息】
 书名：${bookInfo.title}
 大纲：${bookInfo.outline}
 【主要人物】
 ${charsStr}${existingTitlesStr}
+${pacingInstruction}
+
 请严格以 JSON 格式返回一个对象，包含一个 \`chapters\` 字段，其值为数组。数组中每个对象包含以下字段：
 - chapterNumber (数字): 章节序号（必须从 ${startIndex} 到 ${endIndex}）
 - title (字符串): 章节标题（必须新颖，绝对不能与已生成的章节标题重复）
@@ -139,7 +179,25 @@ export async function generateChapterContent(
 ): Promise<string> {
   const charsStr = characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n');
   
+  const isFinalChapter = tocItem.chapterNumber === bookInfo.targetChapterCount;
+  const remainingChapters = bookInfo.targetChapterCount - tocItem.chapterNumber;
+  
+  let pacingContext = '';
+  if (isFinalChapter) {
+    pacingContext = `【🚨 完结红色警告 🚨】本章是全书的最后一章（第 ${bookInfo.targetChapterCount} 章）！请务必给故事画上一个完整的句号，解决所有悬念，绝对不要在结尾留悬念或断章。`;
+  } else if (remainingChapters <= 5) {
+    pacingContext = `【⚠️ 终局收网阶段 ⚠️】本章是第 ${tocItem.chapterNumber} 章，距离全书大结局（第 ${bookInfo.targetChapterCount} 章）仅剩 ${remainingChapters} 章！请注意收拢剧情，不要再挖新坑，将故事推向最终高潮。`;
+  } else {
+    pacingContext = `当前是第 ${tocItem.chapterNumber} 章，全书共 ${bookInfo.targetChapterCount} 章。请稳步推进剧情。`;
+  }
+  
+  let cliffhangerInstruction = isFinalChapter 
+    ? `2. **大结局收尾**：本章是全书的最后一章（第 ${bookInfo.targetChapterCount} 章），必须完美收官，绝对不能有未完待续的感觉。`
+    : `2. **结尾悬念（断章）**：章节结尾必须卡在一个具体的动作、一句关键对话或一个突发事件上，戛然而止，不要把话说完，留下悬念。`;
+
   let prompt = `你是一位顶尖的小说家。请根据以下设定撰写小说的第 ${tocItem.chapterNumber} 章：${tocItem.title}。
+
+${pacingContext}
 
 【核心要求】
 1. 本章字数必须**不少于 ${settings.minWordCount} 字**。请充分展开细节、对话、环境描写和心理活动。
@@ -148,7 +206,7 @@ export async function generateChapterContent(
 
 【防重复与去AI味指令】（极其重要！）
 1. **拒绝套路化开头/结尾**：绝对不要在章节开头进行“前情提要”或总结式的抒情；绝对不要在章节结尾进行“人生感悟”或“剧情总结”。
-2. **结尾悬念（断章）**：章节结尾必须卡在一个具体的动作、一句关键对话或一个突发事件上，戛然而止，不要把话说完，留下悬念。
+${cliffhangerInstruction}
 3. **禁用高频AI词汇**：禁用“只见”、“就在这时”、“然而”、“不禁”、“顿时”、“不由得”等词汇。丰富你的句式。
 4. **自然衔接**：如果是续写，请直接从上一章的结尾场景自然过渡，不要重新介绍已经出场的人物背景或重复上一章的动作。
 5. **多描写，少叙述**：用具体的动作、神态、对话和环境交互来推动剧情，而不是用大段的旁白去总结发生了什么。
@@ -185,8 +243,19 @@ ${tocItem.summary}
 }
 
 export async function generateShortStoryTitles(themes: string[], settings: Settings): Promise<string[]> {
-  const prompt = `请根据以下主题，为一篇7k-12k字的短篇小说构思 5 个吸引人的标题。
+  const prompt = `你是一位深谙爆款逻辑的网文主编。请根据以下主题，为一篇7k-12k字的短篇小说构思 5 个极具吸引力、点击率极高的爆款标题。
+
 主题：${themes.join('、')}
+
+【标题要求】（非常重要！）
+1. 必须符合当前番茄小说、知乎等平台的短篇爆款风格（如：情绪拉扯、极致反转、打脸虐渣、猎奇悬疑等）。
+2. 标题要有强烈的画面感、反差感或悬念，能瞬间抓住读者的眼球，让人产生强烈的点击欲望。
+3. 句式参考（不限于）：
+   - 第一人称自述式（例：《我死后，渣男他疯了》、《给京圈太子爷当替身的第三年》）
+   - 强反差/打脸式（例：《真千金回归后，全家跪求原谅》、《被辞退后，我成了前老板的顶头上司》）
+   - 悬念/规则式（例：《规则怪谈：不要在半夜照镜子》、《我的老公每天都在换脸》）
+4. 标题字数控制在 8-20 字之间，语言要接地气、有网感。
+
 请严格以 JSON 格式返回一个对象，包含一个 \`titles\` 字段，其值为字符串数组。不要输出其他任何解释性文字。`;
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);

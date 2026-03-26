@@ -11,10 +11,11 @@ export interface Settings {
 export interface BookInfo {
   title: string;
   themes: string[];
-  lengthType: '100' | '200' | '300' | '400' | '500';
+  lengthType: string;
   targetChapterCount: number;
   outline: string;
   worldbuilding: string;
+  endingOutline: string;
 }
 
 export interface ShortStoryInfo {

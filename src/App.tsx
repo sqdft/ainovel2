@@ -18,9 +18,14 @@ const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: strin
 const NOVEL_THEMES = [
   '玄幻修仙', '重生复仇', '系统无敌', '科幻未来', '都市异能', '悬疑推理', '浪漫言情', '历史穿越', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说',
   '脑洞大开', '无敌爽文', '战神赘婿', '神豪暴富', '灵气复苏', '末世求生', '规则怪谈', '诡异流', '历史脑洞',
-  '甜宠高甜', '虐恋情深', '穿书女配', '种田经商', '娱乐圈', '团宠萌宝', '宫斗宅斗', '快穿打脸', '真假千金', '霸道总裁'
+  '甜宠高甜', '虐恋情深', '穿书女配', '种田经商', '娱乐圈', '团宠萌宝', '宫斗宅斗', '快穿打脸', '真假千金', '霸道总裁',
+  '凡人流', '苟道流', '模拟器', '聊天群', '综漫同人', '四合院', '年代文', '军婚', '读心术', '追妻火葬场', '破镜重圆', '替身白月光', '权谋天下', '盗墓探险', '赶海日常', '直播带货', '游戏制作', '体育竞技', '诸天万界', '洪荒封神', '西游同人', '大唐大明'
 ];
-const SHORT_STORY_THEMES = ['现代爱情', '婚姻伦理', '白月光', '都市生活', '青春校园', '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '脑洞反转', '知乎风', '复仇虐渣', '甜文日常', '世情故事'];
+const SHORT_STORY_THEMES = [
+  '真假千金', '追妻火葬场', '全家火葬场', '替身觉醒', '重生复仇', '读心术', '规则怪谈', '玄学大佬', '绝症死遁', '穿书女配',
+  '渣男悔过', '婆媳斗法', '职场爽文', '绿茶女配', '萌宝带球跑', '脑洞反转', '知乎风', '白月光', '复仇虐渣', '甜文日常',
+  '现代爱情', '婚姻伦理', '都市生活', '青春校园', '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '世情故事'
+];
 
 const LENGTHS = [
   { label: '短篇 (100章)', value: '100', count: 100 },
@@ -28,6 +33,7 @@ const LENGTHS = [
   { label: '中篇 (300章)', value: '300', count: 300 },
   { label: '中长篇 (400章)', value: '400', count: 400 },
   { label: '长篇 (500章)', value: '500', count: 500 },
+  { label: '自定义', value: 'custom', count: 100 },
 ];
 
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
@@ -57,6 +63,52 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
 
   return [storedValue, setValue];
 }
+
+const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availableThemes: string[], selectedThemes: string[], onChange: (themes: string[]) => void }) => {
+  const [showAll, setShowAll] = useState(false);
+  const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 12);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="block text-sm font-medium text-zinc-700">主题 (可多选，最多3个)</label>
+        {availableThemes.length > 12 && (
+          <button 
+            onClick={() => setShowAll(!showAll)}
+            className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+          >
+            {showAll ? '收起' : '展示全部'}
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {displayThemes.map(theme => {
+          const isSelected = selectedThemes.includes(theme);
+          return (
+            <button
+              key={theme}
+              onClick={() => {
+                if (isSelected) {
+                  if (selectedThemes.length > 1) onChange(selectedThemes.filter(t => t !== theme));
+                } else {
+                  if (selectedThemes.length < 3) onChange([...selectedThemes, theme]);
+                  else alert('最多只能选择3个主题');
+                }
+              }}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                isSelected 
+                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                  : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
+              }`}
+            >
+              {theme}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const [mode, setMode] = useLocalStorage<Mode>('ai_novel_mode', 'novel');
@@ -108,7 +160,7 @@ export default function App() {
     });
   };
 
-  const handleLengthChange = (lengthType: '100' | '200' | '300' | '400' | '500') => {
+  const handleLengthChange = (lengthType: string) => {
     const count = LENGTHS.find(l => l.value === lengthType)?.count || 100;
     setBookInfo({ ...bookInfo, lengthType, targetChapterCount: count });
   };
@@ -306,53 +358,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Common UI
-  const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availableThemes: string[], selectedThemes: string[], onChange: (themes: string[]) => void }) => {
-    const [showAll, setShowAll] = useState(false);
-    const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 12);
-
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <label className="block text-sm font-medium text-zinc-700">主题 (可多选，最多3个)</label>
-          {availableThemes.length > 12 && (
-            <button 
-              onClick={() => setShowAll(!showAll)}
-              className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
-            >
-              {showAll ? '收起' : '展示全部'}
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {displayThemes.map(theme => {
-            const isSelected = selectedThemes.includes(theme);
-            return (
-              <button
-                key={theme}
-                onClick={() => {
-                  if (isSelected) {
-                    if (selectedThemes.length > 1) onChange(selectedThemes.filter(t => t !== theme));
-                  } else {
-                    if (selectedThemes.length < 3) onChange([...selectedThemes, theme]);
-                    else alert('最多只能选择3个主题');
-                  }
-                }}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  isSelected 
-                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
-                    : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
-                }`}
-              >
-                {theme}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
   // Renderers
   const renderSettings = () => (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -548,15 +553,31 @@ export default function App() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">小说篇幅</label>
-              <select 
-                value={bookInfo.lengthType}
-                onChange={(e) => handleLengthChange(e.target.value as '100' | '200' | '300' | '400' | '500')}
-                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-              >
-                {LENGTHS.map(l => (
-                  <option key={l.value} value={l.value}>{l.label}</option>
-                ))}
-              </select>
+              <div className="flex gap-2">
+                <select 
+                  value={bookInfo.lengthType}
+                  onChange={(e) => handleLengthChange(e.target.value)}
+                  className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                >
+                  {LENGTHS.map(l => (
+                    <option key={l.value} value={l.value}>{l.label}</option>
+                  ))}
+                </select>
+                {bookInfo.lengthType === 'custom' && (
+                  <div className="flex items-center gap-2 w-32">
+                    <input
+                      type="number"
+                      min="1"
+                      max="10000"
+                      value={bookInfo.targetChapterCount}
+                      onChange={(e) => setBookInfo({ ...bookInfo, targetChapterCount: parseInt(e.target.value) || 1 })}
+                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      placeholder="章数"
+                    />
+                    <span className="text-sm text-zinc-500">章</span>
+                  </div>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-700 mb-1">书名</label>
@@ -931,7 +952,7 @@ export default function App() {
 
         <div className="p-4 border-t border-zinc-100 space-y-3">
           <a
-            href="https://www.xiaoyang.zone.id"
+            href="#"
             target="_blank"
             rel="noopener noreferrer"
             className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
