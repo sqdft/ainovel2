@@ -1,4 +1,4 @@
-export type Provider = 'gemini' | 'openai' | 'deepseek' | 'zhipu' | 'moonshot' | 'custom';
+export type Provider = 'gemini' | 'openai' | 'deepseek' | 'zhipu' | 'moonshot' | 'custom' | 'kilo';
 
 export interface Settings {
   provider: Provider;
