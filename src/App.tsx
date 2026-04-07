@@ -13,7 +13,7 @@ const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: strin
   moonshot: { label: 'Kimi (月之暗面)', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
   custom: { label: '自定义 (OpenAI 兼容)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
-  kilo: { label: 'Kilo AI (Cloudflare代理)', baseUrl: 'https://kilo.a2981515c.workers.dev/proxy/kilo', model: 'kilo-default' },
+  kilo: { label: '自定义代理', baseUrl: '', model: '' },
 };
 
 const NOVEL_THEMES = [
