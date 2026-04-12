@@ -301,7 +301,9 @@ export async function generateShortStoryContent(
 `;
 
   if (existingContent) {
-    prompt += `\n【前文回顾】\n以下是你已经写出的前文，请紧接其后继续撰写，保持文风和剧情连贯：\n\n${existingContent.slice(-2000)}`;
+    const recentContent = existingContent.slice(-1500);
+    const totalLength = existingContent.length;
+    prompt += `\n【前文回顾】\n以下是你已经写出的前文最后部分（全文约${Math.round(totalLength / 2)}字，请勿重复已写内容），请紧接其后继续撰写新内容：\n\n${recentContent}\n\n【重要提醒】你正在续写第${Math.floor(totalLength / 1500) + 1}部分内容。绝对不要重复上文已出现的对话、场景描写或情节，必须推进新的剧情发展。`;
   }
 
   const responseText = await callAI(prompt, settings, false);

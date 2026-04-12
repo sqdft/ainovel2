@@ -312,6 +312,53 @@ export default function App() {
     }
   };
 
+  // 检测并去除新生成内容与已有内容的重复部分
+  const removeDuplicateContent = (existingContent: string, newContent: string): string => {
+    if (!existingContent) return newContent;
+    
+    // 将内容按段落分割
+    const existingParagraphs = existingContent.split(/\n\n+/).filter(p => p.trim().length > 10);
+    const newParagraphs = newContent.split(/\n\n+/).filter(p => p.trim().length > 10);
+    
+    // 检查新内容的每个段落是否与已有内容高度相似
+    const uniqueParagraphs: string[] = [];
+    let foundDuplicate = false;
+    
+    for (const newPara of newParagraphs) {
+      const newParaClean = newPara.trim().replace(/\s+/g, '');
+      let isDuplicate = false;
+      
+      // 与已有内容的最后几个段落比较（避免重复续写）
+      const recentExisting = existingParagraphs.slice(-5);
+      for (const existPara of recentExisting) {
+        const existParaClean = existPara.trim().replace(/\s+/g, '');
+        
+        // 计算相似度：如果新段落与已有段落的相似度超过70%，认为是重复
+        const longerLen = Math.max(newParaClean.length, existParaClean.length);
+        if (longerLen === 0) continue;
+        
+        // 简单判断：如果新段落完全包含在已有段落中，或反之
+        if (existParaClean.includes(newParaClean.slice(0, 30)) || 
+            newParaClean.includes(existParaClean.slice(0, 30))) {
+          isDuplicate = true;
+          foundDuplicate = true;
+          break;
+        }
+      }
+      
+      if (!isDuplicate) {
+        uniqueParagraphs.push(newPara);
+      }
+    }
+    
+    // 如果检测到重复，提示用户
+    if (foundDuplicate) {
+      console.warn('检测到重复内容，已自动去除');
+    }
+    
+    return uniqueParagraphs.join('\n\n');
+  };
+
   const handleGenerateShortStoryContent = async () => {
     if (!shortStoryInfo.outline) {
       alert('请先填写故事核心脑洞/大纲！');
@@ -320,9 +367,18 @@ export default function App() {
     setIsGenerating(true);
     try {
       const newContent = await generateShortStoryContent(shortStoryInfo, shortStoryInfo.content, settings);
+      
+      // 检测并去除重复内容
+      const cleanedContent = removeDuplicateContent(shortStoryInfo.content, newContent);
+      
+      // 如果清理后内容为空或太少，提示用户
+      if (cleanedContent.trim().length < 50 && newContent.trim().length > 100) {
+        alert('检测到生成内容与已有内容高度重复，已跳过重复部分。建议点击"清空正文"重新生成，或继续生成下一部分。');
+      }
+      
       setShortStoryInfo({ 
         ...shortStoryInfo, 
-        content: shortStoryInfo.content ? shortStoryInfo.content + '\n\n' + newContent : newContent 
+        content: shortStoryInfo.content ? shortStoryInfo.content + '\n\n' + cleanedContent : cleanedContent 
       });
       setActiveTab('chapters');
     } catch (error: any) {
