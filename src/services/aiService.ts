@@ -72,7 +72,13 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
     // 安全检查 API 响应格式
     if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
       console.error('API 响应格式异常:', data);
-      throw new Error('API 返回格式异常，缺少 choices 字段');
+      // 检查是否是错误响应
+      if (data.error) {
+        throw new Error(`API 错误: ${data.error.message || data.error.code || JSON.stringify(data.error)}`);
+      }
+      // 可能是代理或自定义 API 返回了非标准格式
+      const hint = data.message ? ' (请检查 Base URL 是否正确)' : '';
+      throw new Error(`API 返回格式异常${hint}。响应内容: ${JSON.stringify(data).slice(0, 200)}`);
     }
     
     if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
