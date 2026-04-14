@@ -29,6 +29,12 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
       config
     });
     
+    // 安全检查 Gemini 响应
+    if (!response) {
+      console.error('Gemini API 返回空响应');
+      throw new Error('AI 返回空响应，请重试');
+    }
+    
     return response.text || "";
   } else {
     // Custom / OpenAI compatible endpoint (DeepSeek, Zhipu, Moonshot, etc.)
@@ -62,6 +68,18 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
     }
 
     const data = await res.json();
+    
+    // 安全检查 API 响应格式
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      console.error('API 响应格式异常:', data);
+      throw new Error('API 返回格式异常，缺少 choices 字段');
+    }
+    
+    if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
+      console.error('API 响应内容异常:', data.choices[0]);
+      throw new Error('API 返回内容异常，缺少 message.content 字段');
+    }
+    
     return data.choices[0].message.content || "";
   }
 }
