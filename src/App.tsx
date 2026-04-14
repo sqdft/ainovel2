@@ -3,7 +3,7 @@ import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Lo
 import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo } from './types';
 import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle } from './services/aiService';
 
-type Tab = 'settings' | 'book' | 'characters' | 'toc' | 'chapters';
+type Tab = 'settings' | 'book' | 'characters' | 'toc' | 'chapters' | 'examples';
 type Mode = 'novel' | 'shortStory';
 
 const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: string }> = {
@@ -806,6 +806,44 @@ export default function App() {
     );
   };
 
+  const renderExamples = () => (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-semibold text-zinc-900">小说范文参考</h2>
+        <p className="text-sm text-zinc-500">点击下方链接阅读优秀小说示例</p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {EXAMPLE_LINKS.map((link, idx) => (
+          <a
+            key={idx}
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100 hover:border-amber-300 hover:shadow-md transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center group-hover:bg-amber-100 transition-colors">
+                <BookOpen className="w-5 h-5 text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-medium text-zinc-900 group-hover:text-amber-700 transition-colors">{link.title}</h3>
+                <p className="text-xs text-zinc-500 truncate">{link.url}</p>
+              </div>
+              <Globe className="w-4 h-4 text-zinc-400 group-hover:text-amber-500 transition-colors" />
+            </div>
+          </a>
+        ))}
+      </div>
+
+      <div className="bg-amber-50 p-4 rounded-xl border border-amber-100 mt-6">
+        <p className="text-sm text-amber-800">
+          💡 提示：阅读优秀范文可以帮助你更好地理解小说结构、人物塑造和情节设计。建议在创作前先浏览这些示例获取灵感。
+        </p>
+      </div>
+    </div>
+  );
+
   const renderChapters = () => {
     if (mode === 'shortStory') {
       return (
@@ -964,6 +1002,15 @@ export default function App() {
         { id: 'chapters', icon: FileText, label: '故事正文' },
       ];
 
+  // 范文参考链接（去重）
+  const EXAMPLE_LINKS = [
+    { url: 'https://fanqienovel.com/page/7610270375947013144', title: '范文示例 1' },
+    { url: 'https://fanqienovel.com/page/7546082508601822233', title: '范文示例 2' },
+    { url: 'https://fanqienovel.com/page/7614757506149010457', title: '范文示例 3' },
+    { url: 'https://fanqienovel.com/page/7612519494467996697', title: '范文示例 4' },
+    { url: 'https://fanqienovel.com/page/7603258880004475928', title: '范文示例 5' },
+  ];
+
   return (
     <div className="flex h-screen bg-zinc-50 text-zinc-900 font-sans">
       {/* Main Sidebar */}
@@ -1008,6 +1055,17 @@ export default function App() {
         </nav>
 
         <div className="p-4 border-t border-zinc-100 space-y-3">
+          <button
+            onClick={() => setActiveTab('examples')}
+            className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === 'examples'
+                ? 'bg-amber-100 text-amber-700 border border-amber-200'
+                : 'text-amber-600 bg-amber-50 border border-amber-100 hover:bg-amber-100'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span className="hidden md:block">范文参考</span>
+          </button>
           <a
             href="#"
             target="_blank"
@@ -1053,6 +1111,7 @@ export default function App() {
             {activeTab === 'characters' && '主要人物设定'}
             {activeTab === 'toc' && '分章目录大纲'}
             {activeTab === 'chapters' && (mode === 'novel' ? '小说正文生成' : '故事正文生成')}
+            {activeTab === 'examples' && '小说范文参考'}
           </h2>
         </header>
 
@@ -1062,6 +1121,7 @@ export default function App() {
           {activeTab === 'characters' && renderCharacters()}
           {activeTab === 'toc' && renderTOC()}
           {activeTab === 'chapters' && renderChapters()}
+          {activeTab === 'examples' && renderExamples()}
         </main>
       </div>
     </div>
