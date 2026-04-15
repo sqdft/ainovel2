@@ -450,7 +450,7 @@ export default function App() {
             <div className="flex justify-between items-center mb-1">
               <label className="block text-sm font-medium text-zinc-700">API Key</label>
               <a 
-                href="https://pan.quark.cn/s/c9e7e024012a#/list/share" 
+                href="https://pan.quark.cn/s/c9e7e024012a?pwd=as5Y" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
