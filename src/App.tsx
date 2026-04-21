@@ -304,9 +304,36 @@ export default function App() {
     }
   };
 
+  // 手动添加人物
+  const handleAddCharacter = () => {
+    const newCharacter: Character = {
+      id: Date.now().toString(),
+      name: '',
+      role: '配角',
+      description: ''
+    };
+    setCharacters([...characters, newCharacter]);
+  };
+
+  // 删除人物
+  const handleDeleteCharacter = (id: string) => {
+    if (characters.length <= 1) {
+      alert('至少保留一个角色');
+      return;
+    }
+    setCharacters(characters.filter(c => c.id !== id));
+  };
+
+  // 更新人物
+  const handleUpdateCharacter = (id: string, field: keyof Character, value: string) => {
+    setCharacters(characters.map(c => 
+      c.id === id ? { ...c, [field]: value } : c
+    ));
+  };
+
   const handleGenerateTOC = async () => {
     if (!bookInfo.title || characters.length === 0) {
-      alert('请先生成书籍信息和人物关系！');
+      alert('请先生成或填写书籍信息！');
       return;
     }
     
@@ -325,6 +352,35 @@ export default function App() {
       setActiveTab('toc');
     } catch (error: any) {
       alert(error.message || '生成目录大纲失败');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 只生成单章目录
+  const handleGenerateSingleChapterOutline = async () => {
+    if (!bookInfo.title || characters.length === 0) {
+      alert('请先生成或填写书籍信息！');
+      return;
+    }
+    
+    const nextChapterNum = toc.length + 1;
+    if (nextChapterNum > bookInfo.targetChapterCount) {
+      alert('已生成全部目录！');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const existingTitles = toc.map(item => item.title);
+      // 只生成1章
+      const newChapters = await generateTOC(bookInfo, characters, settings, nextChapterNum, 1, existingTitles);
+      if (newChapters.length > 0) {
+        setToc([...toc, ...newChapters]);
+        alert(`第${nextChapterNum}章目录生成成功！`);
+      }
+    } catch (error: any) {
+      alert(error.message || '生成单章目录失败');
     } finally {
       setIsGenerating(false);
     }
@@ -827,14 +883,23 @@ export default function App() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-semibold text-zinc-900">人物关系</h2>
-        <button
-          onClick={handleGenerateCharacters}
-          disabled={isGenerating || !bookInfo.title}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
-        >
-          {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-          AI 生成人物
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleAddCharacter}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors"
+          >
+            <Users className="w-4 h-4" />
+            添加人物
+          </button>
+          <button
+            onClick={handleGenerateCharacters}
+            disabled={isGenerating || !bookInfo.title}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+          >
+            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            AI 生成人物
+          </button>
+        </div>
       </div>
 
       {characters.length === 0 ? (
@@ -845,36 +910,36 @@ export default function App() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {characters.map((char, idx) => (
-            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100">
+            <div key={char.id || idx} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100">
               <div className="flex items-center justify-between mb-3">
                 <input 
                   type="text" 
                   value={char.name}
-                  onChange={(e) => {
-                    const newChars = [...characters];
-                    newChars[idx].name = e.target.value;
-                    setCharacters(newChars);
-                  }}
-                  className="font-semibold text-lg text-zinc-900 bg-transparent border-none focus:ring-0 p-0"
+                  onChange={(e) => handleUpdateCharacter(char.id, 'name', e.target.value)}
+                  placeholder="角色姓名"
+                  className="font-semibold text-lg text-zinc-900 bg-transparent border-none focus:ring-0 p-0 w-32"
                 />
-                <input 
-                  type="text" 
-                  value={char.role}
-                  onChange={(e) => {
-                    const newChars = [...characters];
-                    newChars[idx].role = e.target.value;
-                    setCharacters(newChars);
-                  }}
-                  className="text-xs font-medium px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full border-none focus:ring-0 text-right w-24"
-                />
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    value={char.role}
+                    onChange={(e) => handleUpdateCharacter(char.id, 'role', e.target.value)}
+                    placeholder="角色定位"
+                    className="text-xs font-medium px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full border-none focus:ring-0 text-right w-24"
+                  />
+                  <button
+                    onClick={() => handleDeleteCharacter(char.id)}
+                    className="p-1 text-zinc-400 hover:text-red-500 transition-colors"
+                    title="删除人物"
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
               <textarea 
                 value={char.description}
-                onChange={(e) => {
-                  const newChars = [...characters];
-                  newChars[idx].description = e.target.value;
-                  setCharacters(newChars);
-                }}
+                onChange={(e) => handleUpdateCharacter(char.id, 'description', e.target.value)}
+                placeholder="角色描述（性格、背景、关系等）"
                 className="w-full text-sm text-zinc-600 bg-zinc-50 border border-zinc-100 rounded-lg p-3 h-24 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>
@@ -900,14 +965,24 @@ export default function App() {
               已生成 {toc.length} / {bookInfo.targetChapterCount} 章
             </p>
           </div>
-          <button
-            onClick={handleGenerateTOC}
-            disabled={isGenerating || characters.length === 0 || isComplete}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
-          >
-            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-            {isComplete ? '目录已全部生成' : `AI 生成目录 (${nextStart}-${nextEnd}章)`}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleGenerateSingleChapterOutline}
+              disabled={isGenerating || characters.length === 0 || isComplete}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
+            >
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+              生成单章
+            </button>
+            <button
+              onClick={handleGenerateTOC}
+              disabled={isGenerating || characters.length === 0 || isComplete}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+            >
+              {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+              {isComplete ? '目录已全部生成' : `批量生成 (${nextStart}-${nextEnd}章)`}
+            </button>
+          </div>
         </div>
 
         {toc.length === 0 ? (
