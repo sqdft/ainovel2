@@ -14,6 +14,7 @@ const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: strin
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
   custom: { label: '自定义 (OpenAI 兼容)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
   kilo: { label: '自定义代理', baseUrl: '', model: '' },
+  free: { label: '免费模型 ', baseUrl: 'https://api-ai.7e.ink/v1', model: 'Qwen3.5' },
 };
 
 const NOVEL_THEMES = [
@@ -122,6 +123,8 @@ export default function App() {
   const [settings, setSettings] = useLocalStorage<Settings>('ai_novel_settings', {
     provider: 'gemini',
     apiKey: '',
+    apiKeys: [], // 多密钥轮询列表
+    currentKeyIndex: 0, // 当前使用的密钥索引
     baseUrl: PROVIDERS['gemini'].baseUrl,
     model: PROVIDERS['gemini'].model,
     minWordCount: 2000,
@@ -153,12 +156,23 @@ export default function App() {
 
   // Handlers
   const handleProviderChange = (provider: Provider) => {
-    setSettings({
-      ...settings,
+    const newSettings: Partial<Settings> = {
       provider,
       baseUrl: PROVIDERS[provider].baseUrl,
       model: PROVIDERS[provider].model,
-    });
+    };
+    
+    // 切换到免费提供商时，将单密钥复制到多密钥列表（如果多密钥为空）
+    if (provider === 'free' && settings.apiKeys.length === 0 && settings.apiKey) {
+      newSettings.apiKeys = [settings.apiKey];
+    }
+    
+    // 从免费提供商切换回其他时，将第一个多密钥复制到单密钥
+    if (provider !== 'free' && settings.provider === 'free' && settings.apiKeys.length > 0) {
+      newSettings.apiKey = settings.apiKeys[0];
+    }
+    
+    setSettings({ ...settings, ...newSettings });
   };
 
   const handleLengthChange = (lengthType: string) => {
@@ -448,7 +462,9 @@ export default function App() {
 
           <div>
             <div className="flex justify-between items-center mb-1">
-              <label className="block text-sm font-medium text-zinc-700">API Key</label>
+              <label className="block text-sm font-medium text-zinc-700">
+                {settings.provider === 'free' ? 'API Keys (轮询)' : 'API Key'}
+              </label>
               <a 
                 href="https://pan.quark.cn/s/c9e7e024012a?pwd=as5Y" 
                 target="_blank" 
@@ -458,15 +474,62 @@ export default function App() {
                 获取免费 Token
               </a>
             </div>
-            <input 
-              type="password" 
-              value={settings.apiKey}
-              onChange={(e) => setSettings({...settings, apiKey: e.target.value})}
-              placeholder={settings.provider === 'gemini' ? "留空则使用系统默认 Key" : "sk-..."}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            {settings.provider === 'gemini' && !settings.apiKey && (
-              <p className="text-xs text-zinc-500 mt-1">当前正在使用 AI Studio 平台自动注入的安全密钥。</p>
+            
+            {settings.provider === 'free' ? (
+              // 免费提供商：多密钥输入
+              <div className="space-y-2">
+                {settings.apiKeys.length === 0 ? (
+                  <div className="text-sm text-zinc-500 italic">点击下方按钮添加密钥，支持添加多个密钥自动轮询</div>
+                ) : (
+                  settings.apiKeys.map((key, index) => (
+                    <div key={index} className="flex gap-2">
+                      <input 
+                        type="password" 
+                        value={key}
+                        onChange={(e) => {
+                          const newKeys = [...settings.apiKeys];
+                          newKeys[index] = e.target.value;
+                          setSettings({...settings, apiKeys: newKeys});
+                        }}
+                        placeholder={`密钥 ${index + 1}`}
+                        className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <button
+                        onClick={() => {
+                          const newKeys = settings.apiKeys.filter((_, i) => i !== index);
+                          setSettings({...settings, apiKeys: newKeys});
+                        }}
+                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  ))
+                )}
+                <button
+                  onClick={() => setSettings({...settings, apiKeys: [...settings.apiKeys, '']})}
+                  className="w-full py-2 text-sm text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
+                >
+                  + 添加密钥
+                </button>
+                <p className="text-xs text-zinc-500">
+                  已添加 {settings.apiKeys.length} 个密钥，系统会自动轮询使用。当某个密钥过期时会自动切换到下一个。
+                </p>
+              </div>
+            ) : (
+              // 其他提供商：单密钥输入
+              <>
+                <input 
+                  type="password" 
+                  value={settings.apiKey}
+                  onChange={(e) => setSettings({...settings, apiKey: e.target.value})}
+                  placeholder={settings.provider === 'gemini' ? "留空则使用系统默认 Key" : "sk-..."}
+                  className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+                {settings.provider === 'gemini' && !settings.apiKey && (
+                  <p className="text-xs text-zinc-500 mt-1">当前正在使用 AI Studio 平台自动注入的安全密钥。</p>
+                )}
+              </>
             )}
           </div>
 
@@ -988,6 +1051,38 @@ export default function App() {
     }
   };
 
+  const handleResetBookInfo = () => {
+    if (confirm('确定要重置书籍信息吗？这将清空书籍设定、人物、目录和章节内容，但保留API设置。')) {
+      // 重置长篇小说数据
+      setBookInfo({
+        title: '',
+        themes: [NOVEL_THEMES[0]],
+        lengthType: '100',
+        targetChapterCount: 100,
+        outline: '',
+        worldbuilding: '',
+      });
+      setCharacters([]);
+      setToc([]);
+      setChapters({});
+      setActiveChapterNum(null);
+      
+      // 重置短篇故事数据
+      setShortStoryInfo({
+        title: '',
+        themes: [SHORT_STORY_THEMES[0]],
+        targetWordCount: 10000,
+        outline: '',
+        content: ''
+      });
+      setShortStoryTitleOptions([]);
+      
+      // 切换到设置页
+      setActiveTab('settings');
+      alert('书籍信息已重置，API设置保持不变');
+    }
+  };
+
   const navItems = mode === 'novel' 
     ? [
         { id: 'settings', icon: SettingsIcon, label: '设置' },
@@ -1085,7 +1180,15 @@ export default function App() {
             <span className="hidden md:block">导出全书</span>
           </button>
           
-          <div className="flex items-center justify-end px-1 mt-1">
+          <div className="flex items-center justify-end px-1 mt-1 gap-2">
+            <button
+              onClick={handleResetBookInfo}
+              className="text-[11px] flex items-center gap-1 px-1.5 py-1 rounded transition-colors text-zinc-400 hover:text-amber-600 hover:bg-amber-50"
+              title="重置书籍信息（保留API设置）"
+            >
+              <RefreshCw className="w-3 h-3" />
+              <span className="hidden md:block">重开新书</span>
+            </button>
             <button
               onClick={handleReset}
               className={`text-[11px] flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${

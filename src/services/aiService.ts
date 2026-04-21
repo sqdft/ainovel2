@@ -14,6 +14,69 @@ function extractJSON(text: string): any {
   }
 }
 
+// 使用单个密钥调用 OpenAI 兼容 API
+async function callOpenAIWithKey(
+  prompt: string, 
+  settings: Settings, 
+  apiKey: string,
+  expectJSON: boolean
+): Promise<{ success: boolean; content?: string; error?: string; isAuthError?: boolean }> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  };
+  if (apiKey) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const messages = [{ role: 'user', content: prompt }];
+  const body: any = {
+    model: settings.model || 'gpt-3.5-turbo',
+    messages,
+    temperature: 0.7
+  };
+
+  if (expectJSON) {
+    messages[0].content += "\n\n请务必返回合法的 JSON 格式对象，不要包含任何其他文字或 Markdown 标记。";
+  }
+
+  try {
+    const res = await fetch(`${settings.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    // 检查是否是认证错误（401/403），这类错误可以尝试下一个密钥
+    if (res.status === 401 || res.status === 403) {
+      const err = await res.text();
+      return { success: false, error: err, isAuthError: true };
+    }
+
+    if (!res.ok) {
+      const err = await res.text();
+      return { success: false, error: `API 请求失败 (${res.status}): ${err}` };
+    }
+
+    const data = await res.json();
+    
+    // 安全检查 API 响应格式
+    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
+      if (data.error) {
+        return { success: false, error: `API 错误: ${data.error.message || data.error.code || JSON.stringify(data.error)}` };
+      }
+      return { success: false, error: `API 返回格式异常: ${JSON.stringify(data).slice(0, 200)}` };
+    }
+    
+    if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
+      return { success: false, error: 'API 返回内容异常，缺少 message.content 字段' };
+    }
+    
+    return { success: true, content: data.choices[0].message.content || "" };
+  } catch (e: any) {
+    return { success: false, error: e.message || '网络请求失败' };
+  }
+}
+
 async function callAI(prompt: string, settings: Settings, expectJSON: boolean = false): Promise<string> {
   if (settings.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: settings.apiKey || process.env.GEMINI_API_KEY });
@@ -38,55 +101,109 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
     return response.text || "";
   } else {
     // Custom / OpenAI compatible endpoint (DeepSeek, Zhipu, Moonshot, etc.)
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json'
-    };
-    if (settings.apiKey) {
-      headers['Authorization'] = `Bearer ${settings.apiKey}`;
-    }
-
-    const messages = [{ role: 'user', content: prompt }];
-    const body: any = {
-      model: settings.model || 'gpt-3.5-turbo',
-      messages,
-      temperature: 0.7
-    };
-
-    if (expectJSON) {
-      messages[0].content += "\n\n请务必返回合法的 JSON 格式对象，不要包含任何其他文字或 Markdown 标记。";
-    }
-
-    const res = await fetch(`${settings.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(`API 请求失败 (${res.status}): ${err}`);
-    }
-
-    const data = await res.json();
+    // 免费提供商支持多密钥轮询
+    const isFreeProvider = settings.provider === 'free';
+    const keysToTry = isFreeProvider && settings.apiKeys.length > 0 
+      ? settings.apiKeys 
+      : [settings.apiKey];
     
-    // 安全检查 API 响应格式
-    if (!data.choices || !Array.isArray(data.choices) || data.choices.length === 0) {
-      console.error('API 响应格式异常:', data);
-      // 检查是否是错误响应
-      if (data.error) {
-        throw new Error(`API 错误: ${data.error.message || data.error.code || JSON.stringify(data.error)}`);
+    // 读取失败密钥记录（带冷却期）
+    const COOLDOWN_MS = 30 * 60 * 1000; // 30分钟冷却期
+    let failedKeys: Record<string, number> = {};
+    if (isFreeProvider && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('ai_novel_failed_keys');
+        if (stored) {
+          failedKeys = JSON.parse(stored);
+          // 清理过期的记录（超过30分钟）
+          const now = Date.now();
+          Object.keys(failedKeys).forEach(key => {
+            if (now - failedKeys[key] > COOLDOWN_MS) {
+              delete failedKeys[key];
+            }
+          });
+        }
+      } catch (e) {
+        console.error('读取失败密钥记录失败:', e);
       }
-      // 可能是代理或自定义 API 返回了非标准格式
-      const hint = data.message ? ' (请检查 Base URL 是否正确)' : '';
-      throw new Error(`API 返回格式异常${hint}。响应内容: ${JSON.stringify(data).slice(0, 200)}`);
     }
     
-    if (!data.choices[0].message || typeof data.choices[0].message.content !== 'string') {
-      console.error('API 响应内容异常:', data.choices[0]);
-      throw new Error('API 返回内容异常，缺少 message.content 字段');
+    // 对密钥进行排序：未失败的优先，失败的按时间远近排序
+    const now = Date.now();
+    const sortedIndices = keysToTry.map((_, idx) => idx).sort((a, b) => {
+      const keyA = keysToTry[a];
+      const keyB = keysToTry[b];
+      const failedA = failedKeys[keyA] || 0;
+      const failedB = failedKeys[keyB] || 0;
+      // 都未失败或都失败，按原始顺序
+      if ((failedA === 0 && failedB === 0) || (failedA > 0 && failedB > 0)) {
+        return a - b;
+      }
+      // 未失败的排前面
+      return failedA - failedB;
+    });
+    
+    // 从当前索引开始轮询（在排序后的列表中找到起始位置）
+    const startPos = isFreeProvider 
+      ? Math.max(0, sortedIndices.indexOf(settings.currentKeyIndex))
+      : 0;
+    const errors: string[] = [];
+    
+    for (let i = 0; i < sortedIndices.length; i++) {
+      const pos = (startPos + i) % sortedIndices.length;
+      const keyIndex = sortedIndices[pos];
+      const apiKey = keysToTry[keyIndex];
+      
+      if (!apiKey) continue;
+      
+      // 检查是否在冷却期（仅记录认证错误的密钥）
+      const failedAt = failedKeys[apiKey];
+      if (failedAt && now - failedAt < COOLDOWN_MS) {
+        const remainingMin = Math.ceil((COOLDOWN_MS - (now - failedAt)) / 60000);
+        errors.push(`密钥${keyIndex + 1}: 冷却中(${remainingMin}分钟后重试)`);
+        continue;
+      }
+      
+      const result = await callOpenAIWithKey(prompt, settings, apiKey, expectJSON);
+      
+      if (result.success && result.content !== undefined) {
+        // 成功，将该密钥从失败列表中移除
+        if (isFreeProvider && typeof window !== 'undefined') {
+          if (failedKeys[apiKey]) {
+            delete failedKeys[apiKey];
+            localStorage.setItem('ai_novel_failed_keys', JSON.stringify(failedKeys));
+          }
+          // 更新当前密钥索引到下一个（为下次请求做准备）
+          const nextPos = (pos + 1) % sortedIndices.length;
+          const nextIndex = sortedIndices[nextPos];
+          const savedSettings = JSON.parse(localStorage.getItem('ai_novel_settings') || '{}');
+          savedSettings.currentKeyIndex = nextIndex;
+          localStorage.setItem('ai_novel_settings', JSON.stringify(savedSettings));
+        }
+        return result.content;
+      }
+      
+      // 记录错误
+      errors.push(`密钥${keyIndex + 1}: ${result.error?.slice(0, 50)}...`);
+      
+      // 认证错误（401/403）标记到失败列表
+      if (result.isAuthError && isFreeProvider && typeof window !== 'undefined') {
+        failedKeys[apiKey] = Date.now();
+        localStorage.setItem('ai_novel_failed_keys', JSON.stringify(failedKeys));
+        console.warn(`密钥 ${keyIndex + 1} 认证失败，已标记冷却30分钟`);
+      }
+      
+      // 如果不是认证错误，且不是免费提供商，直接抛出
+      if (!result.isAuthError && !isFreeProvider) {
+        throw new Error(result.error);
+      }
+      
+      // 继续尝试下一个密钥
+      console.warn(`密钥 ${keyIndex + 1} 失败，尝试下一个...`);
     }
     
-    return data.choices[0].message.content || "";
+    // 所有密钥都失败了
+    throw new Error(`所有 API 密钥均失效:\n${errors.join('\n')}\n\n请检查密钥是否过期或余额不足。`);
   }
 }
 
