@@ -17,16 +17,36 @@ const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: strin
   free: { label: '免费模型 ', baseUrl: 'https://api-ai.7e.ink/v1', model: 'Qwen3.5' },
 };
 
-const NOVEL_THEMES = [
-  '玄幻修仙', '重生复仇', '系统无敌', '科幻未来', '都市异能', '悬疑推理', '浪漫言情', '历史穿越', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说',
-  '脑洞大开', '无敌爽文', '战神赘婿', '神豪暴富', '灵气复苏', '末世求生', '规则怪谈', '诡异流', '历史脑洞',
-  '甜宠高甜', '虐恋情深', '穿书女配', '种田经商', '娱乐圈', '团宠萌宝', '宫斗宅斗', '快穿打脸', '真假千金', '霸道总裁',
-  '凡人流', '苟道流', '模拟器', '聊天群', '综漫同人', '四合院', '年代文', '军婚', '读心术', '追妻火葬场', '破镜重圆', '替身白月光', '权谋天下', '盗墓探险', '赶海日常', '直播带货', '游戏制作', '体育竞技', '诸天万界', '洪荒封神', '西游同人', '大唐大明'
+// 男频主题
+const MALE_THEMES = [
+  '玄幻修仙', '都市异能', '系统无敌', '重生复仇', '灵气复苏', '末世求生',
+  '战神赘婿', '神豪暴富', '脑洞大开', '无敌爽文', '诡异流', '规则怪谈',
+  '历史穿越', '科幻未来', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说',
+  '凡人流', '苟道流', '模拟器', '聊天群', '综漫同人', '四合院', '诸天万界',
+  '洪荒封神', '西游同人', '大唐大明', '盗墓探险', '赶海日常', '直播带货',
+  '游戏制作', '体育竞技', '鉴宝捡漏', '风水相术', '国运直播', '学霸科技',
+  '军工强国', '美食经营', '荒野求生', '刑侦破案', '医生文', '律师文'
 ];
+
+// 女频主题
+const FEMALE_THEMES = [
+  '重生复仇', '真假千金', '虐恋情深', '甜宠高甜', '追妻火葬场', '破镜重圆',
+  '穿书女配', '快穿打脸', '宫斗宅斗', '种田经商', '娱乐圈', '团宠萌宝',
+  '年代文', '军婚', '读心术', '替身白月光', '霸道总裁', '权谋天下',
+  '婆媳斗法', '萌宝带球跑', '玄学大佬', '绝世美人', '空间灵泉', '重生囤货',
+  '七零年代', '八零年代', '九零年代', '重生虐渣', '大女主逆袭', '闺蜜背叛',
+  '先婚后爱', '契约婚姻', '隐婚秘爱', '高岭之花下神坛', '黑莲花女主',
+  '病娇男主', '清冷女主', '双向救赎', '暗恋成真', '青梅竹马', '豪门恩怨'
+];
+
+// 短篇故事主题
 const SHORT_STORY_THEMES = [
-  '真假千金', '追妻火葬场', '全家火葬场', '替身觉醒', '重生复仇', '读心术', '规则怪谈', '玄学大佬', '绝症死遁', '穿书女配',
-  '渣男悔过', '婆媳斗法', '职场爽文', '绿茶女配', '萌宝带球跑', '脑洞反转', '知乎风', '白月光', '复仇虐渣', '甜文日常',
-  '现代爱情', '婚姻伦理', '都市生活', '青春校园', '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '世情故事'
+  '真假千金', '追妻火葬场', '全家火葬场', '替身觉醒', '重生复仇', '读心术',
+  '规则怪谈', '玄学大佬', '绝症死遁', '穿书女配', '渣男悔过', '婆媳斗法',
+  '职场爽文', '绿茶女配', '萌宝带球跑', '脑洞反转', '知乎风', '白月光',
+  '复仇虐渣', '甜文日常', '现代爱情', '婚姻伦理', '都市生活', '青春校园',
+  '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '世情故事',
+  '系统绑定', '直播算命', '灵异捉鬼', '鉴宝捡漏', '荒野求生', '末日囤货'
 ];
 
 const LENGTHS = [
@@ -66,15 +86,62 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val
   return [storedValue, setValue];
 }
 
-const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availableThemes: string[], selectedThemes: string[], onChange: (themes: string[]) => void }) => {
+const ThemeSelector = ({ 
+  selectedThemes, 
+  onChange,
+  type = 'novel'
+}: { 
+  selectedThemes: string[], 
+  onChange: (themes: string[]) => void,
+  type?: 'novel' | 'shortStory'
+}) => {
+  const [gender, setGender] = useState<'male' | 'female'>('male');
   const [showAll, setShowAll] = useState(false);
-  const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 12);
+  
+  const availableThemes = type === 'shortStory' ? SHORT_STORY_THEMES : (gender === 'male' ? MALE_THEMES : FEMALE_THEMES);
+  const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 15);
+
+  // 当切换男女频时，清空已选主题
+  const handleGenderChange = (newGender: 'male' | 'female') => {
+    setGender(newGender);
+    onChange([]); // 切换时清空选择
+  };
 
   return (
     <div>
+      {type === 'novel' && (
+        <div className="flex items-center gap-2 mb-3">
+          <button
+            onClick={() => handleGenderChange('male')}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              gender === 'male'
+                ? 'bg-blue-100 text-blue-700 border border-blue-200'
+                : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
+            }`}
+          >
+            男频
+          </button>
+          <button
+            onClick={() => handleGenderChange('female')}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              gender === 'female'
+                ? 'bg-pink-100 text-pink-700 border border-pink-200'
+                : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
+            }`}
+          >
+            女频
+          </button>
+          <span className="text-xs text-zinc-400 ml-2">
+            已选 {selectedThemes.length}/5 个主题
+          </span>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between mb-2">
-        <label className="block text-sm font-medium text-zinc-700">主题 (可多选，最多3个)</label>
-        {availableThemes.length > 12 && (
+        <label className="block text-sm font-medium text-zinc-700">
+          主题 {type === 'shortStory' && '(可多选，最多5个)'}
+        </label>
+        {availableThemes.length > 15 && (
           <button 
             onClick={() => setShowAll(!showAll)}
             className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
@@ -83,6 +150,7 @@ const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availabl
           </button>
         )}
       </div>
+      
       <div className="flex flex-wrap gap-2">
         {displayThemes.map(theme => {
           const isSelected = selectedThemes.includes(theme);
@@ -91,15 +159,17 @@ const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availabl
               key={theme}
               onClick={() => {
                 if (isSelected) {
-                  if (selectedThemes.length > 1) onChange(selectedThemes.filter(t => t !== theme));
+                  onChange(selectedThemes.filter(t => t !== theme));
                 } else {
-                  if (selectedThemes.length < 3) onChange([...selectedThemes, theme]);
-                  else alert('最多只能选择3个主题');
+                  if (selectedThemes.length < 5) onChange([...selectedThemes, theme]);
+                  else alert('最多只能选择5个主题');
                 }
               }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 isSelected 
-                  ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                  ? gender === 'female' && type !== 'shortStory'
+                    ? 'bg-pink-100 text-pink-700 border border-pink-200'
+                    : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
                   : 'bg-zinc-50 text-zinc-600 border border-zinc-200 hover:bg-zinc-100'
               }`}
             >
@@ -108,6 +178,30 @@ const ThemeSelector = ({ availableThemes, selectedThemes, onChange }: { availabl
           );
         })}
       </div>
+      
+      {selectedThemes.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="text-xs text-zinc-500">已选:</span>
+          {selectedThemes.map(theme => (
+            <span 
+              key={theme} 
+              className={`px-2 py-0.5 rounded text-xs ${
+                gender === 'female' && type !== 'shortStory'
+                  ? 'bg-pink-50 text-pink-700'
+                  : 'bg-indigo-50 text-indigo-700'
+              }`}
+            >
+              {theme}
+              <button 
+                onClick={() => onChange(selectedThemes.filter(t => t !== theme))}
+                className="ml-1 hover:text-red-500"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
@@ -133,7 +227,7 @@ export default function App() {
   // Novel State
   const [bookInfo, setBookInfo] = useLocalStorage<BookInfo>('ai_novel_bookInfo', {
     title: '',
-    themes: [NOVEL_THEMES[0]],
+    themes: [MALE_THEMES[0]],
     lengthType: '100',
     targetChapterCount: 100,
     outline: '',
@@ -575,7 +669,7 @@ export default function App() {
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
             <ThemeSelector 
-              availableThemes={SHORT_STORY_THEMES} 
+              type="shortStory"
               selectedThemes={shortStoryInfo.themes} 
               onChange={(themes) => setShortStoryInfo({...shortStoryInfo, themes})} 
             />
@@ -665,7 +759,6 @@ export default function App() {
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
           <ThemeSelector 
-            availableThemes={NOVEL_THEMES} 
             selectedThemes={bookInfo.themes} 
             onChange={(themes) => setBookInfo({...bookInfo, themes})} 
           />
@@ -1056,7 +1149,7 @@ export default function App() {
       // 重置长篇小说数据
       setBookInfo({
         title: '',
-        themes: [NOVEL_THEMES[0]],
+        themes: [MALE_THEMES[0]],
         lengthType: '100',
         targetChapterCount: 100,
         outline: '',
