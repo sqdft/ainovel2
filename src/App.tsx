@@ -410,6 +410,37 @@ export default function App() {
     }
   };
 
+  // 删除指定章节
+  const handleDeleteChapter = (chapterNum: number) => {
+    if (!confirm(`确定要删除第${chapterNum}章及其内容吗？\n删除后将无法恢复，该章节后续章节编号不会自动调整。`)) {
+      return;
+    }
+    
+    // 删除章节内容
+    const updatedChapters = { ...chapters };
+    delete updatedChapters[chapterNum];
+    setChapters(updatedChapters);
+    
+    // 如果删除的是当前显示的章节，重置显示状态
+    if (activeChapterNum === chapterNum) {
+      const remainingKeys = Object.keys(updatedChapters).map(Number).sort((a, b) => a - b);
+      if (remainingKeys.length > 0) {
+        setActiveChapterNum(remainingKeys[0]);
+      } else {
+        setActiveChapterNum(1);
+      }
+    }
+  };
+
+  // 删除所有章节内容
+  const handleDeleteAllChapters = () => {
+    if (!confirm('确定要删除所有已生成的章节内容吗？\n这将清空所有章节正文，但保留目录大纲。')) {
+      return;
+    }
+    setChapters({});
+    setActiveChapterNum(1);
+  };
+
   const handleBatchGenerateChapters = async () => {
     const ungenerated = toc.filter(t => !chapters[t.chapterNumber]);
     const toGenerate = ungenerated.slice(0, 20);
@@ -1128,24 +1159,64 @@ export default function App() {
               <p className="text-xs text-zinc-400 p-4 text-center">请先生成目录</p>
             ) : (
               toc.map(item => (
-                <button
+                <div
                   key={item.chapterNumber}
-                  onClick={() => setActiveChapterNum(item.chapterNumber)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center justify-between group ${
+                  className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg text-sm transition-colors ${
                     activeChapterNum === item.chapterNumber 
                       ? 'bg-indigo-50 text-indigo-700 font-medium' 
                       : 'text-zinc-600 hover:bg-zinc-100'
                   }`}
                 >
-                  <span className="truncate flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveChapterNum(item.chapterNumber)}
+                    className="flex-1 text-left truncate flex items-center gap-2"
+                  >
                     {generatingChapterNum === item.chapterNumber && <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />}
                     第{item.chapterNumber}章 {item.title}
-                  </span>
-                  {chapters[item.chapterNumber] && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />}
-                </button>
+                  </button>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!chapters[item.chapterNumber] && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGenerateChapter(item.chapterNumber);
+                        }}
+                        disabled={isGenerating}
+                        className="p-1 text-indigo-600 hover:bg-indigo-100 rounded"
+                        title="生成内容"
+                      >
+                        <Wand2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {chapters[item.chapterNumber] && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteChapter(item.chapterNumber);
+                        }}
+                        className="p-1 text-red-400 hover:bg-red-50 hover:text-red-600 rounded"
+                        title="删除内容"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {chapters[item.chapterNumber] && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 ml-1" />}
+                </div>
               ))
             )}
           </div>
+          {Object.keys(chapters).length > 0 && (
+            <div className="p-3 border-t border-zinc-100">
+              <button
+                onClick={handleDeleteAllChapters}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                清空所有章节
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 flex flex-col bg-white">
@@ -1164,6 +1235,14 @@ export default function App() {
                     <Play className="w-4 h-4" />
                     批量生成下20章
                   </button>
+                  {chapters[activeChapterNum] && (
+                    <button
+                      onClick={() => handleDeleteChapter(activeChapterNum)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      删除本章
+                    </button>
+                  )}
                   <button
                     onClick={() => handleGenerateChapter(activeChapterNum)}
                     disabled={isGenerating}
