@@ -357,7 +357,7 @@ export default function App() {
     }
   };
 
-  // 只生成单章目录
+  // 只生成单章目录（接在末尾）
   const handleGenerateSingleChapterOutline = async () => {
     if (!bookInfo.title || characters.length === 0) {
       alert('请先生成或填写书籍信息！');
@@ -384,6 +384,67 @@ export default function App() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // 删除指定目录项
+  const handleDeleteTOCItem = (chapterNum: number) => {
+    if (!confirm(`确定要删除第${chapterNum}章的目录标题和大纲吗？\n删除后该章节的内容也会被清空。`)) {
+      return;
+    }
+    
+    // 删除目录项（不重新编号，保持原有章节号）
+    const updatedTOC = toc.filter(item => item.chapterNumber !== chapterNum);
+    setToc(updatedTOC);
+    
+    // 删除对应章节内容
+    const updatedChapters = { ...chapters };
+    delete updatedChapters[chapterNum];
+    setChapters(updatedChapters);
+  };
+
+  // 重新生成指定章节的目录
+  const handleRegenerateChapterOutline = async (chapterNum: number) => {
+    if (!bookInfo.title || characters.length === 0) {
+      alert('请先生成或填写书籍信息！');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      // 获取其他章节的标题（不包括当前要重新生成的）
+      const existingTitles = toc
+        .filter(item => item.chapterNumber !== chapterNum)
+        .map(item => item.title);
+      
+      // 生成新标题
+      const newChapters = await generateTOC(bookInfo, characters, settings, chapterNum, 1, existingTitles);
+      if (newChapters.length > 0) {
+        // 替换原目录项
+        const updatedTOC = toc.map(item => 
+          item.chapterNumber === chapterNum ? newChapters[0] : item
+        );
+        setToc(updatedTOC);
+        
+        // 清空该章内容（因为大纲变了）
+        const updatedChapters = { ...chapters };
+        delete updatedChapters[chapterNum];
+        setChapters(updatedChapters);
+        
+        alert(`第${chapterNum}章目录已重新生成！`);
+      }
+    } catch (error: any) {
+      alert(error.message || '重新生成目录失败');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 编辑目录标题
+  const handleEditChapterTitle = (chapterNum: number, newTitle: string) => {
+    const updatedTOC = toc.map(item => 
+      item.chapterNumber === chapterNum ? { ...item, title: newTitle } : item
+    );
+    setToc(updatedTOC);
   };
 
   const handleGenerateChapter = async (chapterNum: number) => {
@@ -1024,7 +1085,7 @@ export default function App() {
         ) : (
           <div className="space-y-3">
             {toc.map((item, idx) => (
-              <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100 flex gap-4">
+              <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100 flex gap-4 group">
                 <div className="flex-shrink-0 w-12 h-12 bg-zinc-50 rounded-xl flex items-center justify-center font-serif text-xl text-zinc-400">
                   {item.chapterNumber}
                 </div>
@@ -1038,6 +1099,7 @@ export default function App() {
                       setToc(newToc);
                     }}
                     className="w-full font-semibold text-zinc-900 bg-transparent border-none focus:ring-0 p-0"
+                    placeholder="章节标题"
                   />
                   <textarea 
                     value={item.summary}
@@ -1047,9 +1109,10 @@ export default function App() {
                       setToc(newToc);
                     }}
                     className="w-full text-sm text-zinc-600 bg-zinc-50 border border-zinc-100 rounded-lg p-3 h-20 resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    placeholder="章节内容摘要"
                   />
                 </div>
-                <div className="flex-shrink-0 flex items-center">
+                <div className="flex-shrink-0 flex flex-col gap-2">
                   <button
                     onClick={() => {
                       setActiveChapterNum(item.chapterNumber);
@@ -1058,6 +1121,19 @@ export default function App() {
                     className="px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors"
                   >
                     前往正文
+                  </button>
+                  <button
+                    onClick={() => handleRegenerateChapterOutline(item.chapterNumber)}
+                    disabled={isGenerating}
+                    className="px-3 py-1.5 text-xs font-medium text-amber-600 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-70"
+                  >
+                    {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : '重新生成'}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteTOCItem(item.chapterNumber)}
+                    className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    删除
                   </button>
                 </div>
               </div>
@@ -1206,17 +1282,6 @@ export default function App() {
               ))
             )}
           </div>
-          {Object.keys(chapters).length > 0 && (
-            <div className="p-3 border-t border-zinc-100">
-              <button
-                onClick={handleDeleteAllChapters}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                清空所有章节
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="flex-1 flex flex-col bg-white">
