@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo } from "../types";
+import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment } from "../types";
 
 function extractJSON(text: string): any {
   try {
@@ -447,6 +447,48 @@ export async function generateShortStoryOutlineFromTitle(title: string, themes: 
   return responseText.trim();
 }
 
+// 生成分段大纲
+export async function generateShortStorySegments(
+  info: ShortStoryInfo,
+  settings: Settings
+): Promise<StorySegment[]> {
+  const prompt = `你是一个专业的小说结构规划师。
+
+请为以下短篇故事设计分段大纲，将故事拆分成3-5个逻辑连贯的部分。
+
+故事标题：${info.title || '未命名'}
+主题：${info.themes.join('、')}
+目标字数：${info.targetWordCount}字
+
+要求：
+1. 每个部分应该有独立的标题（如：开端、发展、高潮、结局等）
+2. 每个部分标明预估字数（总字数接近${info.targetWordCount}）
+3. 每个部分提供内容摘要，说明这部分要讲述什么
+4. 确保各部分逻辑连贯，形成完整故事
+
+请以JSON数组格式返回：
+[
+  {
+    "segmentNumber": 1,
+    "title": "第一部分标题",
+    "wordCount": 800,
+    "summary": "这部分的内容摘要..."
+  },
+  ...
+]`;
+
+  const response = await callAI(prompt, settings, true);
+  const segments = extractJSON(response);
+  
+  // 添加content和isGenerated字段
+  return segments.map((seg: any) => ({
+    ...seg,
+    content: '',
+    isGenerated: false
+  }));
+}
+
+// 生成指定分段内容
 export async function generateShortStoryContent(
   info: ShortStoryInfo,
   existingContent: string,

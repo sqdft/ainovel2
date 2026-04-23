@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
 import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo } from './types';
-import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle } from './services/aiService';
+import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
 
 type Tab = 'settings' | 'book' | 'characters' | 'toc' | 'chapters' | 'examples';
 type Mode = 'novel' | 'shortStory';
@@ -242,9 +242,12 @@ export default function App() {
   const [shortStoryInfo, setShortStoryInfo] = useLocalStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
     title: '',
     themes: [SHORT_STORY_THEMES[0]],
-    targetWordCount: 10000,
+    targetWordCount: 3000,
     outline: '',
-    content: ''
+    content: '',
+    segments: [],
+    currentSegment: 0,
+    isOutlineGenerated: false
   });
   const [shortStoryTitleOptions, setShortStoryTitleOptions] = useLocalStorage<string[]>('ai_novel_shortStoryTitleOptions', []);
 
@@ -559,8 +562,14 @@ export default function App() {
     }
     setIsGenerating(true);
     try {
-      const outline = await generateShortStoryOutlineFromTitle(shortStoryInfo.title, shortStoryInfo.themes, settings);
-      setShortStoryInfo({ ...shortStoryInfo, outline });
+      // 生成分段大纲
+      const segments = await generateShortStorySegments(shortStoryInfo, settings);
+      setShortStoryInfo({
+        ...shortStoryInfo,
+        segments,
+        isOutlineGenerated: true,
+        outline: segments.map(s => `${s.segmentNumber}. ${s.title}：${s.summary}`).join('\n')
+      });
     } catch (error: any) {
       alert(error.message || '生成大纲失败');
     } finally {
@@ -615,14 +624,26 @@ export default function App() {
     return uniqueParagraphs.join('\n\n');
   };
 
+  // 生成/续写短篇故事
   const handleGenerateShortStoryContent = async () => {
     if (!shortStoryInfo.outline) {
       alert('请先填写故事核心脑洞/大纲！');
       return;
     }
+    
     setIsGenerating(true);
     try {
-      const newContent = await generateShortStoryContent(shortStoryInfo, shortStoryInfo.content, settings);
+      // 限制上下文长度，避免超过4096 token限制
+      // 最多保留1500字（约3000 token）作为上下文
+      const MAX_CONTEXT_LENGTH = 1500;
+      let context = shortStoryInfo.content;
+      
+      if (context.length > MAX_CONTEXT_LENGTH) {
+        // 只保留最后1500字作为上下文
+        context = context.slice(-MAX_CONTEXT_LENGTH);
+      }
+      
+      const newContent = await generateShortStoryContent(shortStoryInfo, context, settings);
       
       // 检测并去除重复内容
       const cleanedContent = removeDuplicateContent(shortStoryInfo.content, newContent);
@@ -632,9 +653,13 @@ export default function App() {
         alert('检测到生成内容与已有内容高度重复，已跳过重复部分。建议点击"清空正文"重新生成，或继续生成下一部分。');
       }
       
+      // 更新分段计数
+      const currentSegment = shortStoryInfo.currentSegment || 0;
+      
       setShortStoryInfo({ 
         ...shortStoryInfo, 
-        content: shortStoryInfo.content ? shortStoryInfo.content + '\n\n' + cleanedContent : cleanedContent 
+        content: shortStoryInfo.content ? shortStoryInfo.content + '\n\n' + cleanedContent : cleanedContent,
+        currentSegment: currentSegment + 1
       });
       setActiveTab('chapters');
     } catch (error: any) {
@@ -1204,14 +1229,28 @@ export default function App() {
               </button>
               <button
                 onClick={handleGenerateShortStoryContent}
-                disabled={isGenerating}
+                disabled={isGenerating || !shortStoryInfo.outline}
                 className="flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70"
               >
                 {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {shortStoryInfo.content ? '继续生成 (续写)' : '开始生成'}
+                {shortStoryInfo.content 
+                  ? `继续生成第 ${(shortStoryInfo.currentSegment || 0) + 1} 段` 
+                  : '开始生成第 1 段'}
               </button>
             </div>
           </div>
+          {/* 分段进度显示 */}
+          {shortStoryInfo.content && (
+            <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
+              <span className="text-sm text-indigo-700">
+                已生成 {shortStoryInfo.currentSegment || 1} 段 | 总字数 {shortStoryInfo.content.length} 字
+              </span>
+              <span className="text-xs text-indigo-500">
+                每段限制上下文1500字，避免超过4096token限制
+              </span>
+            </div>
+          )}
+          
           <div className="flex-1 overflow-y-auto p-6 bg-zinc-50/50">
             <textarea
               value={shortStoryInfo.content}

@@ -20,12 +20,24 @@ export interface BookInfo {
   endingOutline: string;
 }
 
+export interface StorySegment {
+  segmentNumber: number;
+  title: string;
+  wordCount: number;
+  summary: string;
+  content: string;
+  isGenerated: boolean;
+}
+
 export interface ShortStoryInfo {
   title: string;
   themes: string[];
   targetWordCount: number;
   outline: string;
   content: string;
+  segments: StorySegment[];
+  currentSegment: number; // 当前正在生成的分段
+  isOutlineGenerated: boolean;
 }
 
 export interface Character {
