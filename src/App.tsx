@@ -830,17 +830,19 @@ export default function App() {
         </div>
       )}
 
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
-        <h2 className="text-xl font-semibold text-zinc-900 mb-4">赞助支持</h2>
-        <p className="text-sm text-zinc-600 mb-4">你的赞助是支持小羊老师创作的动力</p>
-        <div className="flex gap-6 justify-center">
-          <div className="flex flex-col items-center gap-1">
-            <img src="/微信.png" alt="微信支付" className="w-28 h-28 rounded-lg" />
-            <span className="text-xs text-zinc-500">微信</span>
+      <div className="p-6 rounded-2xl shadow-sm border border-pink-100/50 overflow-hidden relative" style={{ background: 'linear-gradient(135deg, #fce4ec, #f8bbd0, #fce4ec, #f3e5f5, #fce4ec)', backgroundSize: '400% 400%', animation: 'pinkFlow 8s ease infinite' }}>
+        <div className="text-center mb-5 relative z-10">
+          <h2 className="text-lg font-semibold text-zinc-800 mb-1">☕ 赞助支持</h2>
+          <p className="text-sm text-zinc-500">你的赞助是支持小羊老师创作的动力</p>
+        </div>
+        <div className="flex gap-5 justify-center relative z-10">
+          <div className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-white/50">
+            <img src="/微信.png" alt="微信支付" className="w-32 h-32 rounded-lg" />
+            <span className="text-xs font-medium text-zinc-600 bg-green-50 text-green-700 px-2 py-0.5 rounded-full">微信</span>
           </div>
-          <div className="flex flex-col items-center gap-1">
-            <img src="/支付宝.png" alt="支付宝支付" className="w-28 h-28 rounded-lg" />
-            <span className="text-xs text-zinc-500">支付宝</span>
+          <div className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-white/50">
+            <img src="/支付宝.png" alt="支付宝支付" className="w-32 h-32 rounded-lg" />
+            <span className="text-xs font-medium text-zinc-600 bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">支付宝</span>
           </div>
         </div>
       </div>
