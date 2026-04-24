@@ -829,6 +829,29 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
+        <h2 className="text-xl font-semibold text-zinc-900 mb-4">赞助支持</h2>
+        <p className="text-sm text-zinc-600 mb-4">你的赞助是支持小羊老师创作的动力</p>
+        <div className="flex gap-4 justify-center">
+          <div className="flex-1 max-w-[180px] overflow-hidden rounded-lg border border-zinc-200">
+            <img 
+              src="/微信.jpg" 
+              alt="微信支付" 
+              className="w-full h-auto object-cover"
+              style={{ objectPosition: 'center', marginTop: '-25%', marginBottom: '-25%' }}
+            />
+          </div>
+          <div className="flex-1 max-w-[180px] overflow-hidden rounded-lg border border-zinc-200">
+            <img 
+              src="/支付宝.jpg" 
+              alt="支付宝支付" 
+              className="w-full h-auto object-cover"
+              style={{ objectPosition: 'center', marginTop: '-22%', marginBottom: '-22%' }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 

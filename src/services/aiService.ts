@@ -240,7 +240,7 @@ export async function generateBookInfo(currentBookInfo: BookInfo, settings: Sett
 }
 
 export async function generateCharacters(bookInfo: BookInfo, settings: Settings): Promise<Character[]> {
-  const prompt = `根据以下小说设定，生成 3-5 个主要人物及其关系。
+  const prompt = `根据以下小说设定，生成 8-15 个主要人物及其关系。
 【书籍信息】
 书名：${bookInfo.title}
 主题：${bookInfo.themes.join('、')}
@@ -250,8 +250,13 @@ export async function generateCharacters(bookInfo: BookInfo, settings: Settings)
 请严格以 JSON 格式返回一个对象，包含一个 \`characters\` 字段，其值为数组。数组中每个对象包含以下字段：
 - id (字符串): 唯一标识，如 'char1'
 - name (字符串): 角色姓名
-- role (字符串): 角色定位（如'主角'、'反派'、'导师'等）
-- description (字符串): 包含性格、背景和与其他人的关系（约100字）
+- role (字符串): 角色定位（如'主角'、'反派'、'导师'、'挚友'、'红颜知己'、'宿敌'、'亲人'、'神秘人物'等）
+- description (字符串): 包含性格、背景、与其他人的关系、在剧情中的作用（约100字）
+
+注意：
+1. 人物数量尽可能多（8-15个），确保剧情有足够的角色互动和铺垫空间。
+2. 配角要有鲜明个性，能在不同剧情阶段起到关键推动作用。
+3. 人物之间应有复杂的关系网络，包括亲情、友情、爱情、师徒、恩怨、竞争等。
 不要输出其他任何解释性文字。`;
 
   const responseText = await callAI(prompt, settings, true);
