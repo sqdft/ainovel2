@@ -625,7 +625,7 @@ export default function App() {
   };
 
   // 生成/续写短篇故事
-  const handleGenerateShortStoryContent = async () => {
+  const handleGenerateShortStoryContent = async (isFinalBatch: boolean = false) => {
     if (!shortStoryInfo.outline) {
       alert('请先填写故事核心脑洞/大纲！');
       return;
@@ -643,7 +643,7 @@ export default function App() {
         context = context.slice(-MAX_CONTEXT_LENGTH);
       }
       
-      const newContent = await generateShortStoryContent(shortStoryInfo, context, settings);
+      const newContent = await generateShortStoryContent(shortStoryInfo, context, settings, isFinalBatch);
       
       // 检测并去除重复内容
       const cleanedContent = removeDuplicateContent(shortStoryInfo.content, newContent);
@@ -1244,16 +1244,37 @@ export default function App() {
                 <RefreshCw className="w-4 h-4" />
                 清空重来
               </button>
-              <button
-                onClick={handleGenerateShortStoryContent}
-                disabled={isGenerating || !shortStoryInfo.outline}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70"
-              >
-                {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {shortStoryInfo.content 
-                  ? `继续生成第 ${(shortStoryInfo.currentSegment || 0) + 1} 段` 
-                  : '开始生成第 1 段'}
-              </button>
+              {!shortStoryInfo.content ? (
+                // 第一次生成
+                <button
+                  onClick={() => handleGenerateShortStoryContent(false)}
+                  disabled={isGenerating || !shortStoryInfo.outline}
+                  className="flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70"
+                >
+                  {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                  开始生成（第一批）
+                </button>
+              ) : (
+                // 已有内容，显示两个按钮
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleGenerateShortStoryContent(false)}
+                    disabled={isGenerating}
+                    className="flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-100 rounded-lg hover:bg-indigo-200 transition-colors disabled:opacity-70"
+                  >
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Feather className="w-4 h-4" />}
+                    继续写（不结尾）
+                  </button>
+                  <button
+                    onClick={() => handleGenerateShortStoryContent(true)}
+                    disabled={isGenerating}
+                    className="flex items-center gap-2 px-4 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70"
+                  >
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                    生成结局（收尾）
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           {/* 分段进度显示 */}

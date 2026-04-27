@@ -467,20 +467,41 @@ export async function generateShortStorySegments(
 export async function generateShortStoryContent(
   info: ShortStoryInfo,
   existingContent: string,
-  settings: Settings
+  settings: Settings,
+  isFinalBatch: boolean = false
 ): Promise<string> {
+  // 构建当前要写的分段说明
+  const totalSegments = info.segments?.length || 1;
+  const currentBatch = info.currentSegment || 0;
+  const segmentsInfo = info.segments?.map((s, i) => 
+    `第${i+1}段：${s.title}（约${s.wordCount}字）- ${s.summary}${s.isGenerated ? ' [已生成]' : ''}`
+  ).join('\n') || '';
+  
+  // 计算分批字数（分两批，每批约一半）
+  const targetTotal = info.targetWordCount || 10000;
+  const batchWordCount = Math.round(targetTotal / 2); // 每批约一半字数
+  
+  const endingInstruction = isFinalBatch 
+    ? `【最后一批：目标约${batchWordCount}字】必须写到真正大结局！所有线索收束，主角目标达成或失败，用具体动作/对话收尾，禁止悬念钩子！` 
+    : `【第一批：目标约${batchWordCount}字】从开头写到剧情中段高潮前，充分展开细节，在合适的剧情节点暂停，不用收尾。`;
+
   let prompt = `你是资深中文网文作者"墨染"，八年千万字经验。撰写短篇故事。
 
 【故事设定】
 标题：${info.title}
 主题：${info.themes.join('、')}
-目标总字数：约${info.targetWordCount}字
+目标总字数：约${targetTotal}字（分两批生成，每批约${batchWordCount}字）
 核心脑洞/大纲：${info.outline}
 
+【分段规划】（共${totalSegments}段，当前第${currentBatch+1}批生成）
+${segmentsInfo}
+
+${endingInstruction}
+
 【要求】
-1. 充分展开细节、对话、环境描写。
+1. 本批目标约${batchWordCount}字，充分展开细节、对话、环境描写。
 2. 直接输出正文，不要标题/问候/总结/解释。
-3. 字数限制无法一次写完则在剧情节点自然暂停。
+3. ${isFinalBatch ? '这是最后一批，必须写完真正大结局，所有伏笔回收，用具体动作/对话收尾！' : '本批是前半部分，写到剧情中段即可，在合适节点暂停，不用收尾。'}
 
 【人类网文写作铁律】
 排版：3-6句合一段，逗号句号连接，段内逗号连缀（相关描写用逗号不用句号）。只有拟声词/短拳/对话/场景切换独占一行。每句独占一行=AI特征，禁止！情绪短拳独立成段。
@@ -491,7 +512,8 @@ export async function generateShortStoryContent(
 标点：逗号句号为主，禁——/……/；。拟声词独立段。过渡用奈何/但/这时候/毕竟/因为。
 禁止：AI升华/哲学总结/万能收尾，AI词（然而/此外/综上所述/与此同时），AI情感（心中充满了/感到一阵莫名的），AI高频（只见/就在这时/不禁/顿时/仿佛/宛如/那一刻）。收尾禁万能句（"真正风暴才刚刚开始""一切只是开始"），禁悬念钩子（"风卷起纸页慢慢翻开"式结尾），收尾必须具体动作/对话/画面。
 防重复：拒绝套路开头结尾，避免句式重复，续写自然衔接，对话即攻防带潜台词，禁连续微动作描写，主角智商在线不圣母。
-`;
+${isFinalBatch ? '\n【强制结尾要求】这是最后一批生成！必须：1)所有核心冲突解决 2)主角目标达成或明确失败 3)所有伏笔回收 4)用具体动作/对话收尾 5)禁止"真正风暴才刚开始"等万能句 6)禁止"风卷起纸页慢慢翻开"等悬念钩子！' : ''}
+`
 
   if (existingContent) {
     const recentContent = existingContent.slice(-1500);
