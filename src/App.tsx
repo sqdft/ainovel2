@@ -1233,17 +1233,51 @@ export default function App() {
               {shortStoryInfo.title || '未命名短篇'}
             </h3>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (confirm('确定要清空当前内容重新开始吗？')) {
-                    setShortStoryInfo({ ...shortStoryInfo, content: '' });
-                  }
-                }}
-                className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-600 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                清空重来
-              </button>
+              {/* 下拉菜单式按钮组 */}
+              <div className="relative group">
+                <button
+                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-600 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  重置
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {/* 下拉选项 */}
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-zinc-200 hidden group-hover:block z-10">
+                  <button
+                    onClick={() => {
+                      if (confirm('确定要清空当前正文内容吗？保留标题和大纲。')) {
+                        setShortStoryInfo({ ...shortStoryInfo, content: '', currentSegment: 0 });
+                      }
+                    }}
+                    className="w-full px-4 py-2 text-sm text-left text-zinc-700 hover:bg-zinc-50 first:rounded-t-lg"
+                  >
+                    仅清空正文
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm('确定要重置整个故事吗？这将清空标题、大纲、正文等所有内容，但保留API设置。')) {
+                        setShortStoryInfo({
+                          title: '',
+                          themes: [SHORT_STORY_THEMES[0]],
+                          targetWordCount: 15000,
+                          outline: '',
+                          content: '',
+                          segments: [],
+                          currentSegment: 0,
+                          isOutlineGenerated: false
+                        });
+                        setShortStoryTitleOptions([]);
+                      }
+                    }}
+                    className="w-full px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 last:rounded-b-lg border-t border-zinc-100"
+                  >
+                    重置所有故事信息
+                  </button>
+                </div>
+              </div>
               {!shortStoryInfo.content ? (
                 // 第一次生成
                 <button
