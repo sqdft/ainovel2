@@ -203,7 +203,7 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
     }
     
     // 所有密钥都失败了
-    throw new Error(`所有 API 密钥均失效:\n${errors.join('\n')}\n\n请检查密钥是否过期或余额不足。`);
+    throw new Error(`所有 API 密钥均失效:\n${errors.join('\n')}\n\n账户余额不足，请找小羊老师咨询。`);
   }
 }
 
