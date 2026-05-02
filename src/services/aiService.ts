@@ -16,6 +16,8 @@ function extractJSON(text: string): any {
     try {
       // 修复1: 数组元素之间缺少 } (如 }  { → }, {)
       let fixed = jsonStr.replace(/\}\s*\{/g, '}, {');
+      // 修复1b: 对象之间完全缺少闭合}（如 "字符串值"\n    { → "字符串值"}\n    {）
+      fixed = fixed.replace(/"\s*\n(\s*)\{/g, '"}\n$1{');
       // 修复2: 末尾多余的逗号
       fixed = fixed.replace(/,\s*([}\]])/g, '$1');
       // 修复3: AI把键值对写成 "key:value" 而非 "key":value（如 "chapterNumber:124" → "chapterNumber":124）
