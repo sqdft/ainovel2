@@ -18,7 +18,9 @@ function extractJSON(text: string): any {
       let fixed = jsonStr.replace(/\}\s*\{/g, '}, {');
       // 修复2: 末尾多余的逗号
       fixed = fixed.replace(/,\s*([}\]])/g, '$1');
-      // 修复3: 缺少闭合的 } (统计 { 和 } 数量，补齐)
+      // 修复3: AI把键值对写成 "key:value" 而非 "key":value（如 "chapterNumber:124" → "chapterNumber":124）
+      fixed = fixed.replace(/"(\w+):(\d+)"\s*:/g, '"$1":$2,');
+      // 修复4: 缺少闭合的 } (统计 { 和 } 数量，补齐)
       const openBraces = (fixed.match(/{/g) || []).length;
       const closeBraces = (fixed.match(/}/g) || []).length;
       if (openBraces > closeBraces) {
