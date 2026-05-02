@@ -413,12 +413,18 @@ ${realmProgress && realmProgress.realms.length > 0 ? (() => {
   const isBreakthrough = currentRealmIdx > prevChapterRealmIdx;
   const breakthroughHint = isBreakthrough
     ? `⚠️ 本章主角突破！从${realmProgress.realms[prevChapterRealmIdx]?.name || '初始'} → ${currentRealm.name}！必须写出突破过程（机缘/领悟/战斗中突破），突破后实力碾压同阶，展示新能力。`
-    : `主角当前${currentRealm.name}，展示该境界能力，遇到更高境界对手时被碾压，为后续突破铺垫。`;
+    : '';
   return `\n【境界体系】主角${protagName}当前境界：${currentRealm?.name || '未知'}（第${currentRealm?.level || '?'}阶）
 ${nextRealm ? `下一境界：${nextRealm.name}（突破条件：${nextRealm.breakthroughCondition}）` : '已至巅峰！'}
 境界全览：
 ${realmList}
-${breakthroughHint}`;
+${breakthroughHint}
+【境界贯穿要求】境界需自然融入正文，约20-30章提及1次即可，不要每章都提。提及方式：
+1. 战斗/对决时：用境界名描述实力差距（"区区${currentRealm?.name}也敢拦我"），或展示境界特有能力。
+2. 修炼/突破时：写修炼场景，感悟瓶颈，正常修炼突破也可以，不必每次都靠战斗突破。
+3. 遇强敌时：被高境界碾压的无力感，为后续突破蓄势。
+4. 旁人评价：他人议论主角境界变化，侧面烘托。
+不要生硬插入，用对话/旁白/心理活动自然带出。非提及章节正常写剧情即可，不需要刻意提境界。`;
 })() : ''}
 
 【本章摘要】
