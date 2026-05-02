@@ -1212,15 +1212,10 @@ export default function App() {
                         {!isPast && idx > realmProgress.protagonistCurrentRealmIndex && (
                           <button
                             onClick={() => {
-                              const chapterNumStr = prompt(`主角突破到「${realm.name}」，在哪一章突破？\n\n当前目录共${toc.length}章${toc.length > 0 ? '（第1~' + toc[toc.length - 1].chapterNumber + '章）' : ''}\n\n输入章节号：`);
-                              if (!chapterNumStr) return;
-                              const chapterNum = parseInt(chapterNumStr);
-                              if (isNaN(chapterNum) || chapterNum < 1) {
-                                alert('请输入有效章节号');
-                                return;
-                              }
                               const newMap = { ...realmProgress.chapterRealmMap };
-                              newMap[chapterNum] = idx;
+                              // 自动选择下一个未生成的章节作为突破章
+                              const nextChapter = toc.length > 0 ? toc[toc.length - 1].chapterNumber + 1 : 1;
+                              newMap[nextChapter] = idx;
                               setRealmProgress({
                                 ...realmProgress,
                                 protagonistCurrentRealmIndex: idx,
