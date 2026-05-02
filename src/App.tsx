@@ -321,10 +321,21 @@ export default function App() {
     setIsGenerating(true);
     try {
       const realms = await generateRealms(bookInfo, characters, settings);
+      // 自动分配突破节点：前期快后期慢（网文节奏）
+      // 用二次曲线分布：前30%篇幅完成50%突破，后70%篇幅完成剩余50%
+      const totalChapters = bookInfo.targetChapterCount;
+      const realmCount = realms.length;
+      const chapterRealmMap: Record<number, number> = {};
+      for (let i = 1; i < realmCount; i++) {
+        const t = i / realmCount; // 0~1 线性进度
+        const curvedT = Math.pow(t, 1.3); // 前期稍快后期慢的曲线
+        const breakthroughChapter = Math.max(Math.round(curvedT * totalChapters), i * 5); // 至少间隔5章
+        chapterRealmMap[breakthroughChapter] = i;
+      }
       setRealmProgress({
         realms,
         protagonistCurrentRealmIndex: 0,
-        chapterRealmMap: {}
+        chapterRealmMap
       });
       setActiveTab('realms');
     } catch (error: any) {
@@ -1141,92 +1152,52 @@ export default function App() {
             <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-xl border border-indigo-100">
               <div className="flex items-center justify-between">
                 <div>
-                  <span className="text-sm text-indigo-600">主角{protagName}当前境界</span>
+                  <span className="text-sm text-indigo-600">主角{protagName}境界体系</span>
                   <div className="text-2xl font-bold text-indigo-900 mt-1">
-                    {realmProgress.realms[realmProgress.protagonistCurrentRealmIndex]?.name || '未知'}
+                    {realmProgress.realms.length} 阶境界
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm text-indigo-600">境界进度</span>
+                  <span className="text-sm text-indigo-600">自动分配</span>
                   <div className="text-lg font-semibold text-indigo-900 mt-1">
-                    {realmProgress.protagonistCurrentRealmIndex + 1} / {realmProgress.realms.length}
+                    {Object.keys(realmProgress.chapterRealmMap).length} 个突破节点
                   </div>
                 </div>
               </div>
-              {/* 进度条 */}
-              <div className="mt-3 h-2 bg-indigo-100 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-indigo-600 rounded-full transition-all"
-                  style={{ width: `${((realmProgress.protagonistCurrentRealmIndex + 1) / realmProgress.realms.length) * 100}%` }}
-                />
+              <div className="mt-2 text-xs text-indigo-500">
+                境界按章节进度自动推进，生成章节时AI自动识别当前境界并融入剧情
               </div>
             </div>
 
             {/* 境界列表 */}
             <div className="space-y-3">
               {realmProgress.realms.map((realm, idx) => {
-                const isCurrent = idx === realmProgress.protagonistCurrentRealmIndex;
-                const isPast = idx < realmProgress.protagonistCurrentRealmIndex;
+                // 找到该境界的突破章节
+                const breakthroughChapter = Object.entries(realmProgress.chapterRealmMap)
+                  .find(([, rIdx]) => rIdx === idx)?.[0];
+                const isStarting = idx === 0;
                 return (
                   <div key={realm.id} className={`p-4 rounded-xl border transition-all ${
-                    isCurrent ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-200' :
-                    isPast ? 'bg-zinc-50 border-zinc-200 opacity-60' :
+                    isStarting ? 'bg-green-50 border-green-200' :
+                    breakthroughChapter ? 'bg-amber-50 border-amber-200' :
                     'bg-white border-zinc-100'
                   }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                          isCurrent ? 'bg-indigo-600 text-white' :
-                          isPast ? 'bg-zinc-300 text-zinc-600' :
+                          isStarting ? 'bg-green-600 text-white' :
+                          breakthroughChapter ? 'bg-amber-500 text-white' :
                           'bg-zinc-100 text-zinc-500'
                         }`}>
-                          {isCurrent ? '▶' : realm.level}
+                          {realm.level}
                         </span>
                         <div>
-                          <span className={`font-semibold ${isCurrent ? 'text-indigo-900' : 'text-zinc-700'}`}>
+                          <span className={`font-semibold ${isStarting ? 'text-green-900' : breakthroughChapter ? 'text-amber-900' : 'text-zinc-700'}`}>
                             {realm.name}
                           </span>
-                          {isCurrent && <span className="ml-2 text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">当前</span>}
-                          {isPast && <span className="ml-2 text-xs bg-zinc-300 text-zinc-600 px-2 py-0.5 rounded-full">已突破</span>}
+                          {isStarting && <span className="ml-2 text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">起始</span>}
+                          {breakthroughChapter && <span className="ml-2 text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">第{breakthroughChapter}章突破</span>}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isCurrent && idx > 0 && (
-                          <button
-                            onClick={() => {
-                              const newMap = { ...realmProgress.chapterRealmMap };
-                              // 移除最后一次突破记录
-                              const lastKey = Object.keys(newMap).sort((a, b) => Number(b) - Number(a))[0];
-                              if (lastKey && newMap[lastKey] === idx) delete newMap[lastKey];
-                              setRealmProgress({
-                                ...realmProgress,
-                                protagonistCurrentRealmIndex: idx - 1,
-                                chapterRealmMap: newMap
-                              });
-                            }}
-                            className="text-xs px-2 py-1 bg-zinc-100 text-zinc-600 rounded hover:bg-zinc-200 transition-colors"
-                          >
-                            回退
-                          </button>
-                        )}
-                        {!isPast && idx > realmProgress.protagonistCurrentRealmIndex && (
-                          <button
-                            onClick={() => {
-                              const newMap = { ...realmProgress.chapterRealmMap };
-                              // 自动选择下一个未生成的章节作为突破章
-                              const nextChapter = toc.length > 0 ? toc[toc.length - 1].chapterNumber + 1 : 1;
-                              newMap[nextChapter] = idx;
-                              setRealmProgress({
-                                ...realmProgress,
-                                protagonistCurrentRealmIndex: idx,
-                                chapterRealmMap: newMap
-                              });
-                            }}
-                            className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors"
-                          >
-                            设为当前境界
-                          </button>
-                        )}
                       </div>
                     </div>
                     <div className="mt-2 ml-11 text-sm text-zinc-600">{realm.description}</div>

@@ -426,16 +426,28 @@ ${pacingContext}
 【人物设定】
 ${charsStr}
 ${realmProgress && realmProgress.realms.length > 0 ? (() => {
-  const currentRealmIdx = realmProgress.chapterRealmMap[tocItem.chapterNumber] ?? realmProgress.protagonistCurrentRealmIndex;
+  // 根据chapterRealmMap自动推算当前章节主角所在境界
+  // 找到<=当前章节的最大突破章节
+  let currentRealmIdx = 0;
+  const sortedBreakpoints = Object.entries(realmProgress.chapterRealmMap)
+    .map(([ch, idx]) => ({ ch: Number(ch), idx }))
+    .sort((a, b) => a.ch - b.ch);
+  for (const bp of sortedBreakpoints) {
+    if (bp.ch <= tocItem.chapterNumber) {
+      currentRealmIdx = bp.idx;
+    } else {
+      break;
+    }
+  }
   const currentRealm = realmProgress.realms[currentRealmIdx];
-  const prevChapterRealmIdx = tocItem.chapterNumber > 1 ? (realmProgress.chapterRealmMap[tocItem.chapterNumber - 1] ?? realmProgress.protagonistCurrentRealmIndex) : -1;
+  const isBreakthrough = realmProgress.chapterRealmMap[tocItem.chapterNumber] !== undefined;
+  const prevRealmIdx = isBreakthrough && currentRealmIdx > 0 ? currentRealmIdx - 1 : -1;
   const nextRealm = currentRealmIdx < realmProgress.realms.length - 1 ? realmProgress.realms[currentRealmIdx + 1] : null;
   const protagonist = characters.find(c => c.role === '主角');
   const protagName = protagonist?.name || '主角';
   const realmList = realmProgress.realms.map((r, i) => `${i === currentRealmIdx ? '▶' : '○'} ${r.level}. ${r.name} - ${r.description}`).join('\n');
-  const isBreakthrough = currentRealmIdx > prevChapterRealmIdx;
   const breakthroughHint = isBreakthrough
-    ? `⚠️ 本章主角突破！从${realmProgress.realms[prevChapterRealmIdx]?.name || '初始'} → ${currentRealm.name}！必须写出突破过程（机缘/领悟/战斗中突破），突破后实力碾压同阶，展示新能力。`
+    ? `⚠️ 本章主角突破！从${realmProgress.realms[prevRealmIdx]?.name || '初始'} → ${currentRealm.name}！必须写出突破过程（机缘/领悟/战斗中突破），突破后实力碾压同阶，展示新能力。`
     : '';
   return `\n【境界体系】主角${protagName}当前境界：${currentRealm?.name || '未知'}（第${currentRealm?.level || '?'}阶）
 ${nextRealm ? `下一境界：${nextRealm.name}（突破条件：${nextRealm.breakthroughCondition}）` : '已至巅峰！'}
