@@ -47,18 +47,25 @@ export interface Character {
   description: string;
 }
 
+export interface SubRealm {
+  name: string;         // 如 "初期" "中期" "后期" "圆满"
+  description: string; // 简要描述
+}
+
 export interface Realm {
   id: string;
   name: string;
   level: number;
   description: string;
   breakthroughCondition: string;
+  subRealms: SubRealm[]; // 小境界，如 [初期, 中期, 后期, 圆满]
 }
 
 export interface RealmProgress {
   realms: Realm[];
   protagonistCurrentRealmIndex: number;
-  chapterRealmMap: Record<number, number>; // chapterNumber -> realmIndex
+  protagonistCurrentSubRealmIndex: number; // 当前大境界内的小境界索引
+  chapterRealmMap: Record<number, { realmIndex: number; subRealmIndex: number }>; // chapterNumber -> {大境界索引, 小境界索引}
 }
 
 export interface TOCItem {

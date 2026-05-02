@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, RealmProgress } from "../types";
+import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, SubRealm, RealmProgress } from "../types";
 
 function extractJSON(text: string): any {
   // 提取JSON文本
@@ -304,19 +304,26 @@ export async function generateRealms(bookInfo: BookInfo, characters: Character[]
 主角：${protagonistName}
 
 要求：
-1. 境界数量：8-12个，从低到高排列。
-2. 每个境界要有独特名称（符合世界观风格，如修仙用"炼气/筑基/金丹"，都市用"觉醒/C级/B级/A级/S级"，玄幻用"战士/战师/战王/战皇"等）。
-3. 每个境界简要描述特征和能力范围。
-4. 每个境界给出突破条件（如需要什么资源、领悟、机缘等）。
-5. 境界之间要有明确的实力差距感，高境界对低境界有碾压感。
-6. 主角起始境界应在第1-2阶，最终达到最高或次高境界。
+1. 大境界数量：8-12个，从低到高排列。
+2. 每个大境界包含小境界，必须符合网文惯例，只允许以下两种风格（全书统一选一种）：
+   - 重数制：一重、二重、三重、四重、五重、六重、七重、八重、九重（共9个小境界，适合修仙/玄幻）
+   - 三层制：初期、中期、后期（共3个小境界，适合都市/异能/简洁体系）
+   不要自创其他小境界名称！
+3. 每个大境界要有独特名称（符合世界观风格，如修仙用"炼气/筑基/金丹"，都市用"觉醒/C级/B级/A级/S级"，玄幻用"战士/战师/战王/战皇"等）。
+4. 每个大境界简要描述特征和能力范围。
+5. 每个大境界给出突破到下一大境界的条件（如需要什么资源、领悟、机缘等）。
+6. 境界之间要有明确的实力差距感，高境界对低境界有碾压感。
+7. 主角起始境界应在第1-2阶初期，最终达到最高或次高大境界巅峰。
 
 请严格以 JSON 格式返回一个对象，包含一个 \`realms\` 字段，其值为数组。数组中每个对象包含以下字段：
 - id (字符串): 唯一标识，如 'realm1'
-- name (字符串): 境界名称
+- name (字符串): 大境界名称
 - level (数字): 等级序号，从1开始
-- description (字符串): 境界特征描述（约30字）
-- breakthroughCondition (字符串): 突破到下一境界的条件（约30字，最高境界写"已至巅峰"）
+- description (字符串): 大境界特征描述（约30字）
+- breakthroughCondition (字符串): 突破到下一大境界的条件（约30字，最高境界写"已至巅峰"）
+- subRealms (数组): 小境界列表，每个对象包含：
+  - name (字符串): 小境界名称（如"初期"）
+  - description (字符串): 小境界简要描述（约15字）
 不要输出其他任何解释性文字。`;
 
   const responseText = await callAI(prompt, settings, true);
@@ -428,31 +435,48 @@ ${pacingContext}
 【人物设定】
 ${charsStr}
 ${realmProgress && realmProgress.realms.length > 0 ? (() => {
-  // 根据chapterRealmMap自动推算当前章节主角所在境界
-  // 找到<=当前章节的最大突破章节
+  // 根据chapterRealmMap自动推算当前章节主角所在境界（大境界+小境界）
   let currentRealmIdx = 0;
+  let currentSubIdx = 0;
   const sortedBreakpoints = Object.entries(realmProgress.chapterRealmMap)
-    .map(([ch, idx]) => ({ ch: Number(ch), idx }))
+    .map(([ch, val]) => ({ ch: Number(ch), realmIndex: (val as any).realmIndex ?? val, subRealmIndex: (val as any).subRealmIndex ?? 0 }))
     .sort((a, b) => a.ch - b.ch);
   for (const bp of sortedBreakpoints) {
     if (bp.ch <= tocItem.chapterNumber) {
-      currentRealmIdx = bp.idx;
+      currentRealmIdx = bp.realmIndex;
+      currentSubIdx = bp.subRealmIndex;
     } else {
       break;
     }
   }
   const currentRealm = realmProgress.realms[currentRealmIdx];
+  const currentSubRealm = currentRealm?.subRealms?.[currentSubIdx];
   const isBreakthrough = realmProgress.chapterRealmMap[tocItem.chapterNumber] !== undefined;
-  const prevRealmIdx = isBreakthrough && currentRealmIdx > 0 ? currentRealmIdx - 1 : -1;
+  const bpData = realmProgress.chapterRealmMap[tocItem.chapterNumber] as any;
   const nextRealm = currentRealmIdx < realmProgress.realms.length - 1 ? realmProgress.realms[currentRealmIdx + 1] : null;
+  const nextSubRealm = currentSubIdx < (currentRealm?.subRealms?.length || 1) - 1 ? currentRealm?.subRealms?.[currentSubIdx + 1] : null;
   const protagonist = characters.find(c => c.role === '主角');
   const protagName = protagonist?.name || '主角';
-  const realmList = realmProgress.realms.map((r, i) => `${i === currentRealmIdx ? '▶' : '○'} ${r.level}. ${r.name} - ${r.description}`).join('\n');
-  const breakthroughHint = isBreakthrough
-    ? `⚠️ 本章主角突破！从${realmProgress.realms[prevRealmIdx]?.name || '初始'} → ${currentRealm.name}！必须写出突破过程（机缘/领悟/战斗中突破），突破后实力碾压同阶，展示新能力。`
-    : '';
-  return `\n【境界体系】主角${protagName}当前境界：${currentRealm?.name || '未知'}（第${currentRealm?.level || '?'}阶）
-${nextRealm ? `下一境界：${nextRealm.name}（突破条件：${nextRealm.breakthroughCondition}）` : '已至巅峰！'}
+  const realmList = realmProgress.realms.map((r, i) => {
+    const isCurrent = i === currentRealmIdx;
+    const subStr = r.subRealms?.map((s, si) => `${isCurrent && si === currentSubIdx ? '▶' : '○'}${s.name}`).join(' ') || '';
+    return `${isCurrent ? '▶' : '○'} ${r.level}. ${r.name} ${subStr}`;
+  }).join('\n');
+  // 判断突破类型
+  let breakthroughHint = '';
+  if (isBreakthrough) {
+    const isBigBreakthrough = bpData?.subRealmIndex === 0 && bpData?.realmIndex > 0; // 进入新大境界
+    if (isBigBreakthrough) {
+      const prevRealm = realmProgress.realms[(bpData.realmIndex as number) - 1];
+      breakthroughHint = `⚠️ 本章主角大境界突破！${prevRealm?.name || '初始'} → ${currentRealm.name}！必须写出震撼的突破过程（天象异变/灵力暴涌/战斗中突破），突破后实力碾压同阶，展示全新能力。`;
+    } else {
+      breakthroughHint = `⚠️ 本章主角小境界提升→${currentSubRealm?.name || ''}！写出修炼感悟/瓶颈突破的过程，实力小幅提升，为后续大境界突破蓄势。`;
+    }
+  }
+  const fullRealmName = currentSubRealm ? `${currentRealm.name}·${currentSubRealm.name}` : currentRealm?.name || '未知';
+  const nextFullRealm = nextSubRealm ? `${currentRealm.name}·${nextSubRealm.name}` : (nextRealm ? `${nextRealm.name}·${nextRealm.subRealms?.[0]?.name || ''}` : null);
+  return `\n【境界体系】主角${protagName}当前境界：${fullRealmName}（第${currentRealm?.level || '?'}阶）
+${nextFullRealm ? `下一阶段：${nextFullRealm}${nextRealm && !nextSubRealm ? `（大境界突破条件：${nextRealm.breakthroughCondition}）` : ''}` : '已至巅峰！'}
 境界全览：
 ${realmList}
 ${breakthroughHint}

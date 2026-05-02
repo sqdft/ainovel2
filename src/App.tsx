@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
-import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, RealmProgress } from './types';
+import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress } from './types';
 import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
 
 type Tab = 'settings' | 'book' | 'characters' | 'realms' | 'toc' | 'chapters' | 'examples';
@@ -25,7 +25,8 @@ const MALE_THEMES = [
   '凡人流', '苟道流', '模拟器', '聊天群', '综漫同人', '四合院', '诸天万界',
   '洪荒封神', '西游同人', '大唐大明', '盗墓探险', '赶海日常', '直播带货',
   '游戏制作', '体育竞技', '鉴宝捡漏', '风水相术', '国运直播', '学霸科技',
-  '军工强国', '美食经营', '荒野求生', '刑侦破案', '医生文', '律师文'
+  '军工强国', '美食经营', '荒野求生', '刑侦破案', '医生文', '律师文',
+  '炼丹', '剑修', '炼器', '毒修', '阵法', '符箓', '御兽', '傀儡', '体修', '魂修'
 ];
 
 // 女频主题
@@ -237,6 +238,7 @@ export default function App() {
   const [realmProgress, setRealmProgress] = useLocalStorage<RealmProgress>('ai_novel_realmProgress', {
     realms: [],
     protagonistCurrentRealmIndex: 0,
+    protagonistCurrentSubRealmIndex: 0,
     chapterRealmMap: {}
   });
   const [toc, setToc] = useLocalStorage<TOCItem[]>('ai_novel_toc', []);
@@ -321,20 +323,30 @@ export default function App() {
     setIsGenerating(true);
     try {
       const realms = await generateRealms(bookInfo, characters, settings);
-      // 自动分配突破节点：前期快后期慢（网文节奏）
-      // 用二次曲线分布：前30%篇幅完成50%突破，后70%篇幅完成剩余50%
+      // 自动分配突破节点：大境界+小境界，前期快后期慢
       const totalChapters = bookInfo.targetChapterCount;
-      const realmCount = realms.length;
-      const chapterRealmMap: Record<number, number> = {};
-      for (let i = 1; i < realmCount; i++) {
-        const t = i / realmCount; // 0~1 线性进度
-        const curvedT = Math.pow(t, 1.3); // 前期稍快后期慢的曲线
-        const breakthroughChapter = Math.max(Math.round(curvedT * totalChapters), i * 5); // 至少间隔5章
-        chapterRealmMap[breakthroughChapter] = i;
-      }
+      // 计算总突破节点数：每个大境界的小境界数之和（不含起始大境界的第0个小境界）
+      const totalBreakpoints = realms.reduce((sum, r, idx) => {
+        if (idx === 0) return sum + (r.subRealms?.length ? r.subRealms.length - 1 : 0); // 起始大境界跳过第0个小境界
+        return sum + (r.subRealms?.length || 1); // 其他大境界包含所有小境界
+      }, 0);
+      const chapterRealmMap: Record<number, { realmIndex: number; subRealmIndex: number }> = {};
+      let bpIdx = 0;
+      realms.forEach((realm, rIdx) => {
+        const subCount = realm.subRealms?.length || 1;
+        const startSub = rIdx === 0 ? 1 : 0; // 起始大境界从第1个小境界开始
+        for (let sIdx = startSub; sIdx < subCount; sIdx++) {
+          bpIdx++;
+          const t = bpIdx / totalBreakpoints;
+          const curvedT = Math.pow(t, 1.3);
+          const chapter = Math.max(Math.round(curvedT * totalChapters), bpIdx * 3);
+          chapterRealmMap[chapter] = { realmIndex: rIdx, subRealmIndex: sIdx };
+        }
+      });
       setRealmProgress({
         realms,
         protagonistCurrentRealmIndex: 0,
+        protagonistCurrentSubRealmIndex: 0,
         chapterRealmMap
       });
       setActiveTab('realms');
@@ -1172,38 +1184,59 @@ export default function App() {
             {/* 境界列表 */}
             <div className="space-y-3">
               {realmProgress.realms.map((realm, idx) => {
-                // 找到该境界的突破章节
-                const breakthroughChapter = Object.entries(realmProgress.chapterRealmMap)
-                  .find(([, rIdx]) => rIdx === idx)?.[0];
                 const isStarting = idx === 0;
+                // 找到该大境界对应的所有突破章节
+                const realmBreakpoints = Object.entries(realmProgress.chapterRealmMap)
+                  .filter(([, val]) => (val as any).realmIndex === idx)
+                  .map(([ch, val]) => ({ ch: Number(ch), subIdx: (val as any).subRealmIndex }))
+                  .sort((a, b) => a.ch - b.ch);
+                const bigBreakthrough = realmBreakpoints.find(bp => bp.subIdx === 0);
                 return (
                   <div key={realm.id} className={`p-4 rounded-xl border transition-all ${
                     isStarting ? 'bg-green-50 border-green-200' :
-                    breakthroughChapter ? 'bg-amber-50 border-amber-200' :
+                    bigBreakthrough ? 'bg-amber-50 border-amber-200' :
                     'bg-white border-zinc-100'
                   }`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
                           isStarting ? 'bg-green-600 text-white' :
-                          breakthroughChapter ? 'bg-amber-500 text-white' :
+                          bigBreakthrough ? 'bg-amber-500 text-white' :
                           'bg-zinc-100 text-zinc-500'
                         }`}>
                           {realm.level}
                         </span>
                         <div>
-                          <span className={`font-semibold ${isStarting ? 'text-green-900' : breakthroughChapter ? 'text-amber-900' : 'text-zinc-700'}`}>
+                          <span className={`font-semibold ${isStarting ? 'text-green-900' : bigBreakthrough ? 'text-amber-900' : 'text-zinc-700'}`}>
                             {realm.name}
                           </span>
                           {isStarting && <span className="ml-2 text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">起始</span>}
-                          {breakthroughChapter && <span className="ml-2 text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">第{breakthroughChapter}章突破</span>}
+                          {bigBreakthrough && <span className="ml-2 text-xs bg-amber-500 text-white px-2 py-0.5 rounded-full">第{bigBreakthrough.ch}章突破</span>}
                         </div>
                       </div>
                     </div>
                     <div className="mt-2 ml-11 text-sm text-zinc-600">{realm.description}</div>
+                    {/* 小境界列表 */}
+                    {realm.subRealms && realm.subRealms.length > 0 && (
+                      <div className="mt-2 ml-11 flex flex-wrap gap-1.5">
+                        {realm.subRealms.map((sub, si) => {
+                          const subBp = realmBreakpoints.find(bp => bp.subIdx === si);
+                          const isStartSub = isStarting && si === 0;
+                          return (
+                            <span key={si} className={`text-xs px-2 py-1 rounded-full border ${
+                              isStartSub ? 'bg-green-100 text-green-700 border-green-300' :
+                              subBp ? 'bg-amber-100 text-amber-700 border-amber-300' :
+                              'bg-zinc-50 text-zinc-500 border-zinc-200'
+                            }`}>
+                              {sub.name}{subBp ? `·第${subBp.ch}章` : isStartSub ? '·起始' : ''}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                     {realm.breakthroughCondition && idx < realmProgress.realms.length - 1 && (
                       <div className="mt-1 ml-11 text-xs text-amber-600">
-                        突破条件：{realm.breakthroughCondition}
+                        大境界突破条件：{realm.breakthroughCondition}
                       </div>
                     )}
                   </div>
@@ -1218,11 +1251,21 @@ export default function App() {
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(realmProgress.chapterRealmMap)
                     .sort(([a], [b]) => Number(a) - Number(b))
-                    .map(([ch, realmIdx]) => (
-                      <span key={ch} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full border border-amber-200">
-                        第{ch}章 → {realmProgress.realms[realmIdx]?.name}
-                      </span>
-                    ))}
+                    .map(([ch, val]) => {
+                      const bp = val as any;
+                      const realm = realmProgress.realms[bp.realmIndex ?? bp];
+                      const subRealm = realm?.subRealms?.[bp.subRealmIndex ?? 0];
+                      const fullName = subRealm ? `${realm?.name}·${subRealm.name}` : realm?.name || '未知';
+                      const isBig = bp.subRealmIndex === 0 && bp.realmIndex > 0;
+                      return (
+                        <span key={ch} className={`text-xs px-2 py-1 rounded-full border ${
+                          isBig ? 'bg-amber-100 text-amber-800 border-amber-300 font-medium' :
+                          'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          第{ch}章 → {fullName}{isBig ? ' ★大境界' : ''}
+                        </span>
+                      );
+                    })}
                 </div>
               </div>
             )}
@@ -1635,7 +1678,7 @@ export default function App() {
         worldbuilding: '',
       });
       setCharacters([]);
-      setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, chapterRealmMap: {} });
+      setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
       setToc([]);
       setChapters({});
       setActiveChapterNum(null);
