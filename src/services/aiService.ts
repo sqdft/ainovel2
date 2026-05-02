@@ -2,15 +2,38 @@ import { GoogleGenAI } from "@google/genai";
 import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, RealmProgress } from "../types";
 
 function extractJSON(text: string): any {
+  // 提取JSON文本
+  let jsonStr = text;
+  const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (match) {
+    jsonStr = match[1];
+  }
+
   try {
-    const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match) {
-      return JSON.parse(match[1]);
-    }
-    return JSON.parse(text);
+    return JSON.parse(jsonStr);
   } catch (e) {
-    console.error("Failed to parse JSON:", text);
-    throw new Error("AI 返回的数据格式不正确，请重试。");
+    // 尝试自动修复常见JSON错误
+    try {
+      // 修复1: 数组元素之间缺少 } (如 }  { → }, {)
+      let fixed = jsonStr.replace(/\}\s*\{/g, '}, {');
+      // 修复2: 末尾多余的逗号
+      fixed = fixed.replace(/,\s*([}\]])/g, '$1');
+      // 修复3: 缺少闭合的 } (统计 { 和 } 数量，补齐)
+      const openBraces = (fixed.match(/{/g) || []).length;
+      const closeBraces = (fixed.match(/}/g) || []).length;
+      if (openBraces > closeBraces) {
+        fixed += '}'.repeat(openBraces - closeBraces);
+      }
+      const openBrackets = (fixed.match(/\[/g) || []).length;
+      const closeBrackets = (fixed.match(/]/g) || []).length;
+      if (openBrackets > closeBrackets) {
+        fixed += ']'.repeat(openBrackets - closeBrackets);
+      }
+      return JSON.parse(fixed);
+    } catch (e2) {
+      console.error("Failed to parse JSON:", text);
+      throw new Error("AI 返回的数据格式不正确，请重试。");
+    }
   }
 }
 
