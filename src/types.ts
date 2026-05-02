@@ -47,6 +47,20 @@ export interface Character {
   description: string;
 }
 
+export interface Realm {
+  id: string;
+  name: string;
+  level: number;
+  description: string;
+  breakthroughCondition: string;
+}
+
+export interface RealmProgress {
+  realms: Realm[];
+  protagonistCurrentRealmIndex: number;
+  chapterRealmMap: Record<number, number>; // chapterNumber -> realmIndex
+}
+
 export interface TOCItem {
   chapterNumber: number;
   title: string;

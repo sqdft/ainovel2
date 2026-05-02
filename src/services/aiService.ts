@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment } from "../types";
+import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, RealmProgress } from "../types";
 
 function extractJSON(text: string): any {
   try {
@@ -264,6 +264,41 @@ export async function generateCharacters(bookInfo: BookInfo, settings: Settings)
   return data.characters || [];
 }
 
+// 生成境界体系
+export async function generateRealms(bookInfo: BookInfo, characters: Character[], settings: Settings): Promise<Realm[]> {
+  const protagonist = characters.find(c => c.role === '主角');
+  const protagonistName = protagonist?.name || '主角';
+  
+  const prompt = `根据以下小说设定，生成一套完整的修炼/力量境界体系。
+
+【书籍信息】
+书名：${bookInfo.title}
+主题：${bookInfo.themes.join('、')}
+大纲：${bookInfo.outline}
+世界观：${bookInfo.worldbuilding}
+主角：${protagonistName}
+
+要求：
+1. 境界数量：8-12个，从低到高排列。
+2. 每个境界要有独特名称（符合世界观风格，如修仙用"炼气/筑基/金丹"，都市用"觉醒/C级/B级/A级/S级"，玄幻用"战士/战师/战王/战皇"等）。
+3. 每个境界简要描述特征和能力范围。
+4. 每个境界给出突破条件（如需要什么资源、领悟、机缘等）。
+5. 境界之间要有明确的实力差距感，高境界对低境界有碾压感。
+6. 主角起始境界应在第1-2阶，最终达到最高或次高境界。
+
+请严格以 JSON 格式返回一个对象，包含一个 \`realms\` 字段，其值为数组。数组中每个对象包含以下字段：
+- id (字符串): 唯一标识，如 'realm1'
+- name (字符串): 境界名称
+- level (数字): 等级序号，从1开始
+- description (字符串): 境界特征描述（约30字）
+- breakthroughCondition (字符串): 突破到下一境界的条件（约30字，最高境界写"已至巅峰"）
+不要输出其他任何解释性文字。`;
+
+  const responseText = await callAI(prompt, settings, true);
+  const data = extractJSON(responseText);
+  return data.realms || [];
+}
+
 export async function generateTOC(bookInfo: BookInfo, characters: Character[], settings: Settings, startIndex: number, batchSize: number, existingTitles: string[] = []): Promise<TOCItem[]> {
   const charsStr = characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n');
   const endIndex = Math.min(startIndex + batchSize - 1, bookInfo.targetChapterCount);
@@ -321,7 +356,8 @@ export async function generateChapterContent(
   tocItem: TOCItem,
   previousChapters: string[],
   settings: Settings,
-  toc: TOCItem[]
+  toc: TOCItem[],
+  realmProgress?: RealmProgress
 ): Promise<string> {
   const charsStr = characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n');
   
@@ -366,6 +402,24 @@ ${pacingContext}
 
 【人物设定】
 ${charsStr}
+${realmProgress && realmProgress.realms.length > 0 ? (() => {
+  const currentRealmIdx = realmProgress.chapterRealmMap[tocItem.chapterNumber] ?? realmProgress.protagonistCurrentRealmIndex;
+  const currentRealm = realmProgress.realms[currentRealmIdx];
+  const prevChapterRealmIdx = tocItem.chapterNumber > 1 ? (realmProgress.chapterRealmMap[tocItem.chapterNumber - 1] ?? realmProgress.protagonistCurrentRealmIndex) : -1;
+  const nextRealm = currentRealmIdx < realmProgress.realms.length - 1 ? realmProgress.realms[currentRealmIdx + 1] : null;
+  const protagonist = characters.find(c => c.role === '主角');
+  const protagName = protagonist?.name || '主角';
+  const realmList = realmProgress.realms.map((r, i) => `${i === currentRealmIdx ? '▶' : '○'} ${r.level}. ${r.name} - ${r.description}`).join('\n');
+  const isBreakthrough = currentRealmIdx > prevChapterRealmIdx;
+  const breakthroughHint = isBreakthrough
+    ? `⚠️ 本章主角突破！从${realmProgress.realms[prevChapterRealmIdx]?.name || '初始'} → ${currentRealm.name}！必须写出突破过程（机缘/领悟/战斗中突破），突破后实力碾压同阶，展示新能力。`
+    : `主角当前${currentRealm.name}，展示该境界能力，遇到更高境界对手时被碾压，为后续突破铺垫。`;
+  return `\n【境界体系】主角${protagName}当前境界：${currentRealm?.name || '未知'}（第${currentRealm?.level || '?'}阶）
+${nextRealm ? `下一境界：${nextRealm.name}（突破条件：${nextRealm.breakthroughCondition}）` : '已至巅峰！'}
+境界全览：
+${realmList}
+${breakthroughHint}`;
+})() : ''}
 
 【本章摘要】
 ${tocItem.summary}

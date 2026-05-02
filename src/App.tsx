@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
-import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo } from './types';
-import { generateBookInfo, generateCharacters, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
+import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, RealmProgress } from './types';
+import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
 
-type Tab = 'settings' | 'book' | 'characters' | 'toc' | 'chapters' | 'examples';
+type Tab = 'settings' | 'book' | 'characters' | 'realms' | 'toc' | 'chapters' | 'examples';
 type Mode = 'novel' | 'shortStory';
 
 const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: string }> = {
@@ -234,6 +234,11 @@ export default function App() {
     worldbuilding: '',
   });
   const [characters, setCharacters] = useLocalStorage<Character[]>('ai_novel_characters', []);
+  const [realmProgress, setRealmProgress] = useLocalStorage<RealmProgress>('ai_novel_realmProgress', {
+    realms: [],
+    protagonistCurrentRealmIndex: 0,
+    chapterRealmMap: {}
+  });
   const [toc, setToc] = useLocalStorage<TOCItem[]>('ai_novel_toc', []);
   const [chapters, setChapters] = useLocalStorage<Record<number, string>>('ai_novel_chapters', {});
   const [activeChapterNum, setActiveChapterNum] = useLocalStorage<number | null>('ai_novel_activeChapterNum', null);
@@ -302,6 +307,28 @@ export default function App() {
       setActiveTab('characters');
     } catch (error: any) {
       alert(error.message || '生成人物关系失败');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 生成境界体系
+  const handleGenerateRealms = async () => {
+    if (!bookInfo.title || characters.length === 0) {
+      alert('请先生成书籍信息和人物！');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const realms = await generateRealms(bookInfo, characters, settings);
+      setRealmProgress({
+        realms,
+        protagonistCurrentRealmIndex: 0,
+        chapterRealmMap: {}
+      });
+      setActiveTab('realms');
+    } catch (error: any) {
+      alert(error.message || '生成境界体系失败');
     } finally {
       setIsGenerating(false);
     }
@@ -462,7 +489,7 @@ export default function App() {
         if (chapters[i]) previousContents.push(chapters[i]);
       }
 
-      const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings, toc);
+      const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings, toc, realmProgress);
       setChapters(prev => ({ ...prev, [chapterNum]: content }));
       setActiveChapterNum(chapterNum);
       setActiveTab('chapters');
@@ -526,7 +553,7 @@ export default function App() {
         for (let i = 1; i < item.chapterNumber; i++) {
           if (currentChapters[i]) previousContents.push(currentChapters[i]);
         }
-        const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings, toc);
+        const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings, toc, realmProgress);
         currentChapters = { ...currentChapters, [item.chapterNumber]: content };
         setChapters(prev => ({ ...prev, [item.chapterNumber]: content }));
       } catch (error: any) {
@@ -1083,6 +1110,162 @@ export default function App() {
     </div>
   );
 
+  const renderRealms = () => {
+    if (mode === 'shortStory') return null;
+    const protagonist = characters.find(c => c.role === '主角');
+    const protagName = protagonist?.name || '主角';
+
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-semibold text-zinc-900">境界体系</h2>
+          <button
+            onClick={handleGenerateRealms}
+            disabled={isGenerating || !bookInfo.title || characters.length === 0}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
+          >
+            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+            AI 生成境界
+          </button>
+        </div>
+
+        {realmProgress.realms.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-2xl border border-zinc-100 border-dashed">
+            <Globe className="w-12 h-12 text-zinc-300 mx-auto mb-3" />
+            <p className="text-zinc-500">暂无境界体系，请先生成人物后点击右上角生成。</p>
+            <p className="text-xs text-zinc-400 mt-1">境界体系将贯穿全文，主角随剧情提升境界。</p>
+          </div>
+        ) : (
+          <>
+            {/* 当前境界概览 */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-4 rounded-xl border border-indigo-100">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm text-indigo-600">主角{protagName}当前境界</span>
+                  <div className="text-2xl font-bold text-indigo-900 mt-1">
+                    {realmProgress.realms[realmProgress.protagonistCurrentRealmIndex]?.name || '未知'}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm text-indigo-600">境界进度</span>
+                  <div className="text-lg font-semibold text-indigo-900 mt-1">
+                    {realmProgress.protagonistCurrentRealmIndex + 1} / {realmProgress.realms.length}
+                  </div>
+                </div>
+              </div>
+              {/* 进度条 */}
+              <div className="mt-3 h-2 bg-indigo-100 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-indigo-600 rounded-full transition-all"
+                  style={{ width: `${((realmProgress.protagonistCurrentRealmIndex + 1) / realmProgress.realms.length) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* 境界列表 */}
+            <div className="space-y-3">
+              {realmProgress.realms.map((realm, idx) => {
+                const isCurrent = idx === realmProgress.protagonistCurrentRealmIndex;
+                const isPast = idx < realmProgress.protagonistCurrentRealmIndex;
+                return (
+                  <div key={realm.id} className={`p-4 rounded-xl border transition-all ${
+                    isCurrent ? 'bg-indigo-50 border-indigo-300 ring-2 ring-indigo-200' :
+                    isPast ? 'bg-zinc-50 border-zinc-200 opacity-60' :
+                    'bg-white border-zinc-100'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          isCurrent ? 'bg-indigo-600 text-white' :
+                          isPast ? 'bg-zinc-300 text-zinc-600' :
+                          'bg-zinc-100 text-zinc-500'
+                        }`}>
+                          {isCurrent ? '▶' : realm.level}
+                        </span>
+                        <div>
+                          <span className={`font-semibold ${isCurrent ? 'text-indigo-900' : 'text-zinc-700'}`}>
+                            {realm.name}
+                          </span>
+                          {isCurrent && <span className="ml-2 text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full">当前</span>}
+                          {isPast && <span className="ml-2 text-xs bg-zinc-300 text-zinc-600 px-2 py-0.5 rounded-full">已突破</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isCurrent && idx > 0 && (
+                          <button
+                            onClick={() => {
+                              const newMap = { ...realmProgress.chapterRealmMap };
+                              // 移除最后一次突破记录
+                              const lastKey = Object.keys(newMap).sort((a, b) => Number(b) - Number(a))[0];
+                              if (lastKey && newMap[lastKey] === idx) delete newMap[lastKey];
+                              setRealmProgress({
+                                ...realmProgress,
+                                protagonistCurrentRealmIndex: idx - 1,
+                                chapterRealmMap: newMap
+                              });
+                            }}
+                            className="text-xs px-2 py-1 bg-zinc-100 text-zinc-600 rounded hover:bg-zinc-200 transition-colors"
+                          >
+                            回退
+                          </button>
+                        )}
+                        {!isPast && idx > realmProgress.protagonistCurrentRealmIndex && (
+                          <button
+                            onClick={() => {
+                              const chapterNumStr = prompt(`主角突破到「${realm.name}」，在哪一章突破？\n\n当前目录共${toc.length}章${toc.length > 0 ? '（第1~' + toc[toc.length - 1].chapterNumber + '章）' : ''}\n\n输入章节号：`);
+                              if (!chapterNumStr) return;
+                              const chapterNum = parseInt(chapterNumStr);
+                              if (isNaN(chapterNum) || chapterNum < 1) {
+                                alert('请输入有效章节号');
+                                return;
+                              }
+                              const newMap = { ...realmProgress.chapterRealmMap };
+                              newMap[chapterNum] = idx;
+                              setRealmProgress({
+                                ...realmProgress,
+                                protagonistCurrentRealmIndex: idx,
+                                chapterRealmMap: newMap
+                              });
+                            }}
+                            className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors"
+                          >
+                            设为当前境界
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 ml-11 text-sm text-zinc-600">{realm.description}</div>
+                    {realm.breakthroughCondition && idx < realmProgress.realms.length - 1 && (
+                      <div className="mt-1 ml-11 text-xs text-amber-600">
+                        突破条件：{realm.breakthroughCondition}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 章节境界映射 */}
+            {Object.keys(realmProgress.chapterRealmMap).length > 0 && (
+              <div className="bg-white p-4 rounded-xl border border-zinc-100">
+                <h3 className="font-semibold text-zinc-800 mb-3">章节突破记录</h3>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(realmProgress.chapterRealmMap)
+                    .sort(([a], [b]) => Number(a) - Number(b))
+                    .map(([ch, realmIdx]) => (
+                      <span key={ch} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded-full border border-amber-200">
+                        第{ch}章 → {realmProgress.realms[realmIdx]?.name}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
   const renderTOC = () => {
     if (mode === 'shortStory') return null;
 
@@ -1486,6 +1669,7 @@ export default function App() {
         worldbuilding: '',
       });
       setCharacters([]);
+      setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, chapterRealmMap: {} });
       setToc([]);
       setChapters({});
       setActiveChapterNum(null);
@@ -1511,6 +1695,7 @@ export default function App() {
         { id: 'settings', icon: SettingsIcon, label: '设置' },
         { id: 'book', icon: BookOpen, label: '书籍信息' },
         { id: 'characters', icon: Users, label: '人物关系' },
+        { id: 'realms', icon: Globe, label: '境界体系' },
         { id: 'toc', icon: List, label: '大纲目录' },
         { id: 'chapters', icon: FileText, label: '章节内容' },
       ]
@@ -1635,6 +1820,7 @@ export default function App() {
             {activeTab === 'settings' && '系统设置'}
             {activeTab === 'book' && (mode === 'novel' ? '书籍基本信息' : '短篇故事设定')}
             {activeTab === 'characters' && '主要人物设定'}
+            {activeTab === 'realms' && '境界体系'}
             {activeTab === 'toc' && '分章目录大纲'}
             {activeTab === 'chapters' && (mode === 'novel' ? '小说正文生成' : '故事正文生成')}
             {activeTab === 'examples' && '小说范文参考'}
@@ -1645,6 +1831,7 @@ export default function App() {
           {activeTab === 'settings' && renderSettings()}
           {activeTab === 'book' && renderBookInfo()}
           {activeTab === 'characters' && renderCharacters()}
+          {activeTab === 'realms' && renderRealms()}
           {activeTab === 'toc' && renderTOC()}
           {activeTab === 'chapters' && renderChapters()}
           {activeTab === 'examples' && renderExamples()}
