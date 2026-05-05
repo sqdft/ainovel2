@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe } from 'lucide-react';
+import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe, Upload } from 'lucide-react';
 import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress } from './types';
+import { dualGet, dualSet } from './lib/storage';
 import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
 
 type Tab = 'settings' | 'book' | 'characters' | 'realms' | 'toc' | 'chapters' | 'examples';
@@ -59,32 +60,30 @@ const LENGTHS = [
   { label: '自定义', value: 'custom', count: 100 },
 ];
 
-function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
-  const [storedValue, setStoredValue] = useState<T>(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      console.warn('Error reading localStorage', error);
-      return initialValue;
-    }
-  });
-
+function useDualStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void] {
+  const [storedValue, setStoredValue] = useState<T>(initialValue);
+  const [loaded, setLoaded] = useState(false);
   const storedValueRef = useRef(storedValue);
   storedValueRef.current = storedValue;
 
+  // 首次加载：从 IndexedDB/localStorage 读取
+  useEffect(() => {
+    dualGet<T>(key, initialValue).then(val => {
+      setStoredValue(val);
+      storedValueRef.current = val;
+      setLoaded(true);
+    });
+  }, [key]);
+
   const setValue = (value: T | ((val: T) => T)) => {
-    try {
-      const valueToStore = value instanceof Function ? value(storedValueRef.current) : value;
-      setStoredValue(valueToStore);
-      storedValueRef.current = valueToStore;
-      window.localStorage.setItem(key, JSON.stringify(valueToStore));
-    } catch (error) {
-      console.warn('Error setting localStorage', error);
-    }
+    const valueToStore = value instanceof Function ? value(storedValueRef.current) : value;
+    setStoredValue(valueToStore);
+    storedValueRef.current = valueToStore;
+    dualSet(key, valueToStore);
   };
 
-  return [storedValue, setValue];
+  // 未加载完时返回初始值
+  return [loaded ? storedValue : initialValue, setValue];
 }
 
 const ThemeSelector = ({ 
@@ -208,14 +207,14 @@ const ThemeSelector = ({
 };
 
 export default function App() {
-  const [mode, setMode] = useLocalStorage<Mode>('ai_novel_mode', 'novel');
-  const [activeTab, setActiveTab] = useLocalStorage<Tab>('ai_novel_activeTab', 'settings');
+  const [mode, setMode] = useDualStorage<Mode>('ai_novel_mode', 'novel');
+  const [activeTab, setActiveTab] = useDualStorage<Tab>('ai_novel_activeTab', 'settings');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingChapterNum, setGeneratingChapterNum] = useState<number | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // Settings State
-  const [settings, setSettings] = useLocalStorage<Settings>('ai_novel_settings', {
+  const [settings, setSettings] = useDualStorage<Settings>('ai_novel_settings', {
     provider: 'gemini',
     apiKey: '',
     apiKeys: [], // 多密钥轮询列表
@@ -226,7 +225,7 @@ export default function App() {
   });
 
   // Novel State
-  const [bookInfo, setBookInfo] = useLocalStorage<BookInfo>('ai_novel_bookInfo', {
+  const [bookInfo, setBookInfo] = useDualStorage<BookInfo>('ai_novel_bookInfo', {
     title: '',
     themes: [MALE_THEMES[0]],
     lengthType: '100',
@@ -234,19 +233,19 @@ export default function App() {
     outline: '',
     worldbuilding: '',
   });
-  const [characters, setCharacters] = useLocalStorage<Character[]>('ai_novel_characters', []);
-  const [realmProgress, setRealmProgress] = useLocalStorage<RealmProgress>('ai_novel_realmProgress', {
+  const [characters, setCharacters] = useDualStorage<Character[]>('ai_novel_characters', []);
+  const [realmProgress, setRealmProgress] = useDualStorage<RealmProgress>('ai_novel_realmProgress', {
     realms: [],
     protagonistCurrentRealmIndex: 0,
     protagonistCurrentSubRealmIndex: 0,
     chapterRealmMap: {}
   });
-  const [toc, setToc] = useLocalStorage<TOCItem[]>('ai_novel_toc', []);
-  const [chapters, setChapters] = useLocalStorage<Record<number, string>>('ai_novel_chapters', {});
-  const [activeChapterNum, setActiveChapterNum] = useLocalStorage<number | null>('ai_novel_activeChapterNum', null);
+  const [toc, setToc] = useDualStorage<TOCItem[]>('ai_novel_toc', []);
+  const [chapters, setChapters] = useDualStorage<Record<number, string>>('ai_novel_chapters', {});
+  const [activeChapterNum, setActiveChapterNum] = useDualStorage<number | null>('ai_novel_activeChapterNum', null);
 
   // Short Story State
-  const [shortStoryInfo, setShortStoryInfo] = useLocalStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
+  const [shortStoryInfo, setShortStoryInfo] = useDualStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
     title: '',
     themes: [SHORT_STORY_THEMES[0]],
     targetWordCount: 3000,
@@ -256,7 +255,7 @@ export default function App() {
     currentSegment: 0,
     isOutlineGenerated: false
   });
-  const [shortStoryTitleOptions, setShortStoryTitleOptions] = useLocalStorage<string[]>('ai_novel_shortStoryTitleOptions', []);
+  const [shortStoryTitleOptions, setShortStoryTitleOptions] = useDualStorage<string[]>('ai_novel_shortStoryTitleOptions', []);
 
   // Handlers
   const handleProviderChange = (provider: Provider) => {
@@ -1666,6 +1665,65 @@ export default function App() {
     }
   };
 
+  // 备份所有数据到JSON文件
+  const handleExportData = () => {
+    const data = {
+      _version: 1,
+      _exportTime: new Date().toISOString(),
+      mode,
+      settings,
+      bookInfo,
+      characters,
+      realmProgress,
+      toc,
+      chapters,
+      activeChapterNum,
+      shortStoryInfo,
+      shortStoryTitleOptions,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `小说数据备份_${bookInfo.title || '未命名'}_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 从JSON文件恢复数据
+  const handleImportData = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data._version) {
+          alert('无效的备份文件！');
+          return;
+        }
+        if (!confirm(`确认恢复备份？\n备份时间：${data._exportTime || '未知'}\n书名：${data.bookInfo?.title || '未命名'}\n\n此操作将覆盖当前所有数据！`)) return;
+        if (data.mode !== undefined) setMode(data.mode);
+        if (data.settings) setSettings(data.settings);
+        if (data.bookInfo) setBookInfo(data.bookInfo);
+        if (data.characters) setCharacters(data.characters);
+        if (data.realmProgress) setRealmProgress(data.realmProgress);
+        if (data.toc) setToc(data.toc);
+        if (data.chapters) setChapters(data.chapters);
+        if (data.activeChapterNum !== undefined) setActiveChapterNum(data.activeChapterNum);
+        if (data.shortStoryInfo) setShortStoryInfo(data.shortStoryInfo);
+        if (data.shortStoryTitleOptions) setShortStoryTitleOptions(data.shortStoryTitleOptions);
+        alert('数据恢复成功！');
+      } catch (err) {
+        alert('恢复失败：文件格式错误');
+      }
+    };
+    input.click();
+  };
+
   const handleResetBookInfo = () => {
     if (confirm('确定要重置书籍信息吗？这将清空书籍设定、人物、目录和章节内容，但保留API设置。')) {
       // 重置长篇小说数据
@@ -1795,6 +1853,22 @@ export default function App() {
           >
             <Download className="w-4 h-4" />
             <span className="hidden md:block">导出全书</span>
+          </button>
+          
+          <button
+            onClick={handleExportData}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden md:block">备份数据</span>
+          </button>
+          
+          <button
+            onClick={handleImportData}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-green-600 bg-green-50 border border-green-100 rounded-lg hover:bg-green-100 transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="hidden md:block">恢复数据</span>
           </button>
           
           <div className="flex items-center justify-end px-1 mt-1 gap-2">
