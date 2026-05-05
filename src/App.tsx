@@ -338,7 +338,7 @@ export default function App() {
           bpIdx++;
           const t = bpIdx / totalBreakpoints;
           const curvedT = Math.pow(t, 1.3);
-          const chapter = Math.max(Math.round(curvedT * totalChapters), bpIdx * 3);
+          const chapter = Math.min(Math.max(Math.round(curvedT * totalChapters), bpIdx * 3), totalChapters);
           chapterRealmMap[chapter] = { realmIndex: rIdx, subRealmIndex: sIdx };
         }
       });
