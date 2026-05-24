@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, SubRealm, RealmProgress } from "../types";
+import { getThemePrompt } from "../config/themes";
 
 function extractJSON(text: string): any {
   // 提取JSON文本
@@ -59,7 +60,7 @@ async function callOpenAIWithKey(
   const body: any = {
     model: settings.model || 'gpt-3.5-turbo',
     messages,
-    temperature: 0.7
+    temperature: settings.temperature || 0.9
   };
 
   if (expectJSON) {
@@ -107,7 +108,7 @@ async function callOpenAIWithKey(
 async function callAI(prompt: string, settings: Settings, expectJSON: boolean = false): Promise<string> {
   if (settings.provider === 'gemini') {
     const ai = new GoogleGenAI({ apiKey: settings.apiKey || process.env.GEMINI_API_KEY });
-    const config: any = { temperature: 0.7 };
+    const config: any = { temperature: settings.temperature || 0.9 };
     
     if (expectJSON) {
       config.responseMimeType = "application/json";
@@ -234,6 +235,48 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
   }
 }
 
+// 生成书名选项（新增）
+export async function generateBookTitles(themes: string[], lengthType: string, settings: Settings): Promise<Array<{title: string, intro: string}>> {
+  const lengthText = `${LENGTHS.find(l => l.value === lengthType)?.count || 100}章`;
+  const themePrompts = themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
+  
+  const prompt = `你是一位深谙爆款逻辑的网文主编。请根据以下主题，为一部${lengthText}的长篇小说构思 5 个极具吸引力、点击率极高的爆款书名。
+
+${themePrompts}
+
+【书名要求】（非常重要！）
+1. 必须符合当前网文平台的爆款风格（如：情绪拉扯、极致反转、打脸虐渣、猎奇悬疑等）。
+2. 书名要有强烈的画面感、反差感或悬念，能瞬间抓住读者的眼球。
+3. 句式参考（不限于）：
+   - 第一人称自述式（例：《我死后，渣男他疯了》、《给京圈太子爷当替身的第三年》）
+   - 强反差/打脸式（例：《真千金回归后，全家跪求原谅》、《被辞退后，我成了前老板的顶头上司》）
+   - 悬念/规则式（例：《规则怪谈：不要在半夜照镜子》、《我的老公每天都在换脸》）
+   - 修仙/玄幻式（例：《开局签到混沌体》、《我在异界当剑仙》）
+4. 书名字数控制在 5-15 字之间，语言要接地气、有网感。
+
+【介绍要求】
+每个书名需要配一句话介绍（15-30字），简要说明故事核心卖点或主角设定，吸引读者点击。
+
+请严格以 JSON 格式返回一个对象，包含一个 \`titles\` 字段，其值为对象数组。每个对象包含：
+- title (字符串): 书名
+- intro (字符串): 一句话介绍（15-30字）
+不要输出其他任何解释性文字。`;
+
+  const responseText = await callAI(prompt, settings, true);
+  const data = extractJSON(responseText);
+  return data.titles || [];
+}
+
+// LENGTHS 常量定义（用于上面的函数）
+const LENGTHS = [
+  { label: '短篇 (100章)', value: '100', count: 100 },
+  { label: '中短篇 (200章)', value: '200', count: 200 },
+  { label: '中篇 (300章)', value: '300', count: 300 },
+  { label: '中长篇 (400章)', value: '400', count: 400 },
+  { label: '长篇 (500章)', value: '500', count: 500 },
+  { label: '自定义', value: 'custom', count: 100 },
+];
+
 export async function generateBookInfo(currentBookInfo: BookInfo, settings: Settings): Promise<Partial<BookInfo>> {
   const lengthText = `${currentBookInfo.targetChapterCount}章`;
   
@@ -242,35 +285,56 @@ export async function generateBookInfo(currentBookInfo: BookInfo, settings: Sett
   if (currentBookInfo.outline) existingInfo += `\n已有大纲：${currentBookInfo.outline}`;
   if (currentBookInfo.worldbuilding) existingInfo += `\n已有世界观：${currentBookInfo.worldbuilding}`;
 
+  const themePrompts = currentBookInfo.themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
   const prompt = `请帮我构思或完善一本小说设定。
 【基本设定】
-主题：${currentBookInfo.themes.join('、')}
+书名：${currentBookInfo.title}
+${themePrompts}
 篇幅：${lengthText}${existingInfo ? `\n\n【已有内容参考】\n请基于以下已有内容进行扩写、润色或补充，绝对不要完全推翻重写：${existingInfo}` : ''}
 
-请提供完整的书名、故事大纲和世界观设定。
-- 如果已有书名，请保留或微微润色；如果没有，请生成一个吸引人的书名。
-- 如果已有大纲/世界观，请在此基础上扩写细节，使其更丰满（大纲约300字，世界观约200字）；如果没有，请发挥创意生成。
+【重要】请基于书名《${currentBookInfo.title}》生成完整的故事大纲和世界观设定：
+1. 故事大纲（outline）：约300字，包含故事背景、主角设定、核心冲突、主要剧情发展、结局方向
+2. 世界观设定（worldbuilding）：约200字，包含世界背景、力量体系、社会结构、特殊设定等
 
-请严格以 JSON 格式返回一个对象，包含以下字段：
-- title (字符串): 书名
-- outline (字符串): 故事大纲
-- worldbuilding (字符串): 世界观设定
-不要输出其他任何解释性文字。`;
+请严格以 JSON 格式返回一个对象，必须包含以下三个字段：
+{
+  "title": "书名（保持原书名）",
+  "outline": "故事大纲（约300字）",
+  "worldbuilding": "世界观设定（约200字）"
+}
+
+注意：
+- 三个字段都必须填写，不能为空
+- outline 和 worldbuilding 必须是不同的内容，不要重复
+- 不要输出其他任何解释性文字，只返回 JSON 对象`;
 
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);
-  return {
+  
+  // 调试日志
+  console.log('AI 返回的数据:', data);
+  
+  // 确保返回的数据包含所有必要字段
+  const result = {
     title: data.title || currentBookInfo.title,
-    outline: data.outline || currentBookInfo.outline,
-    worldbuilding: data.worldbuilding || currentBookInfo.worldbuilding
+    outline: data.outline || currentBookInfo.outline || '',
+    worldbuilding: data.worldbuilding || data.worldBuilding || data.world_building || currentBookInfo.worldbuilding || ''
   };
+  
+  // 如果世界观仍然为空，给出警告
+  if (!result.worldbuilding) {
+    console.warn('警告：AI 未返回世界观设定，返回的数据:', data);
+  }
+  
+  return result;
 }
 
 export async function generateCharacters(bookInfo: BookInfo, settings: Settings): Promise<Character[]> {
+  const themePrompts = bookInfo.themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
   const prompt = `根据以下小说设定，生成 8-15 个主要人物及其关系。
 【书籍信息】
 书名：${bookInfo.title}
-主题：${bookInfo.themes.join('、')}
+${themePrompts}
 大纲：${bookInfo.outline}
 世界观：${bookInfo.worldbuilding}
 
@@ -295,12 +359,13 @@ export async function generateCharacters(bookInfo: BookInfo, settings: Settings)
 export async function generateRealms(bookInfo: BookInfo, characters: Character[], settings: Settings): Promise<Realm[]> {
   const protagonist = characters.find(c => c.role === '主角');
   const protagonistName = protagonist?.name || '主角';
-  
+  const themePrompts = bookInfo.themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
+
   const prompt = `根据以下小说设定，生成一套完整的修炼/力量境界体系。
 
 【书籍信息】
 书名：${bookInfo.title}
-主题：${bookInfo.themes.join('、')}
+${themePrompts}
 大纲：${bookInfo.outline}
 世界观：${bookInfo.worldbuilding}
 主角：${protagonistName}
@@ -365,9 +430,11 @@ export async function generateTOC(bookInfo: BookInfo, characters: Character[], s
 当前进度约 ${progressPercentage}%。请稳步推进剧情，铺陈世界观，引出核心矛盾，设置悬念，吸引读者。`;
   }
 
+  const themePrompts = bookInfo.themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
   const prompt = `根据以下小说设定和人物，生成第 ${startIndex} 章到第 ${endIndex} 章的目录大纲。
 【书籍信息】
 书名：${bookInfo.title}
+${themePrompts}
 大纲：${bookInfo.outline}
 【主要人物】
 ${charsStr}${existingTitlesStr}
@@ -410,23 +477,15 @@ export async function generateChapterContent(
     pacingContext = `当前是第 ${tocItem.chapterNumber} 章（全书${bookInfo.targetChapterCount}章，进度${progressPercent}%）。请稳步推进剧情。`;
   }
 
-  let prompt = `你是资深中文网文作者"墨染"，八年千万字经验。撰写第 ${tocItem.chapterNumber} 章：${tocItem.title}。
+  let prompt = `你是一位专业网文作家。撰写第 ${tocItem.chapterNumber} 章：${tocItem.title}。
 
 ${pacingContext}
 
 【核心要求】
-1. 本章不少于${settings.minWordCount}字，充分展开细节、对话、环境描写。
+1. 本章目标字数严格控制在${settings.minWordCount}字左右（误差不超过±10%），严禁超写！
 2. 紧扣摘要推进剧情，直接输出正文，不要标题/问候/总结/解释。
-
-【人类网文写作铁律】
-排版：3-6句合一段，逗号句号连接，段内逗号连缀（相关描写用逗号不用句号）。只有拟声词/短拳/对话/场景切换独占一行。每句独占一行=AI特征，禁止！情绪短拳独立成段。
-句子：完整不碎片，5-8句插1个2-5字短拳。一句一动，具象细节（写能看见的，不写抽象情感），动作链式推进。
-对话：名字+2-4字短标签直接写，如"林寒冷声道：'放手。'""苏绫淡声道：'走吧。'"，禁"声音X""语气X"，绝对禁止括号标签如"低声道（严厉道）"！同一标签不重复（冷声道只用1次，下次换撇嘴道/眯眼道/嗤道）。人名重复不用代词，穿插动作，反问反击，必须加口误/改口/填充词（额/那个/不对），对话禁哲学金句（"信仰可被点燃"=AI对话）。
-修辞：全文比喻不超5个！一段最多1个，余全换物理描写（写形状/颜色/温度/声音，不写"如X"）。比喻必须凶猛（动物/武器），禁AI文学腔（水墨/画卷/月光洇开/如黑洞/如弦/如战鼓/如钥匙/如棋/如刀锋/如冷铁钉）。高潮可插四字韵文。
-叙述：内心独白融入叙述禁"心想"，场景切换干脆，时间跳跃极简（"五天后。"），力量展示后接日常动作，心理链（身体→想法→情绪），扮猪吃虎，动机后置，术语重复全名，"的"字结构密集。叙述者必须带性格！每段至少1处讽刺/吐槽/刻薄评论/角色自嘲（"狼心狗肺也就罢了""脸真特么的疼"），禁文学式环境渲染（"气场如黑洞吸干热量""夜色加深星辰被灰雾覆盖"），环境只写具体物件状态。
-标点：逗号句号为主，禁——/……/；。拟声词独立段。过渡用奈何/但/这时候/毕竟/因为。
-禁止：AI升华/哲学总结/万能收尾，AI词（然而/此外/综上所述/与此同时），AI情感（心中充满了/感到一阵莫名的），AI高频（只见/就在这时/不禁/顿时/仿佛/宛如/那一刻）。收尾禁万能句（"真正风暴才刚刚开始""一切只是开始"），禁悬念钩子（"风卷起纸页慢慢翻开"式结尾），收尾必须具体动作/对话/画面。
-伏笔断章：埋悬念用不经意细节，暗示旧伏笔用模糊线索，回收要冲击力。禁止"本章完"，最高点戛然而止。对话即攻防，主角智商在线不圣母。
+3. 章节之间必须有自然过渡，使用场景切换、时间跳跃、人物动作等方式平滑衔接。
+4. 写作风格自然流畅，可以包含任何符合剧情需要的内容，不受限制。
 
 【书籍信息】
 书名：${bookInfo.title}
@@ -513,9 +572,10 @@ ${tocItem.summary}
 }
 
 export async function generateShortStoryTitles(themes: string[], settings: Settings): Promise<string[]> {
+  const themePrompts = themes.map(theme => getThemePrompt(theme, 'shortStory')).join('\n');
   const prompt = `你是一位深谙爆款逻辑的网文主编。请根据以下主题，为一篇7k-12k字的短篇小说构思 5 个极具吸引力、点击率极高的爆款标题。
 
-主题：${themes.join('、')}
+${themePrompts}
 
 【标题要求】（非常重要！）
 1. 必须符合当前番茄小说、知乎等平台的短篇爆款风格（如：情绪拉扯、极致反转、打脸虐渣、猎奇悬疑等）。
@@ -533,9 +593,10 @@ export async function generateShortStoryTitles(themes: string[], settings: Setti
 }
 
 export async function generateShortStoryOutlineFromTitle(title: string, themes: string[], settings: Settings): Promise<string> {
+  const themePrompts = themes.map(theme => getThemePrompt(theme, 'shortStory')).join('\n');
   const prompt = `你是一位顶尖的短篇小说作家。请根据以下标题和主题，构思一个短篇故事（约7k-12k字）的核心脑洞和详细大纲。
 标题：${title}
-主题：${themes.join('、')}
+${themePrompts}
 
 要求：
 1. 包含故事背景、主要人物简介、起因、发展、高潮、结局。
@@ -550,12 +611,13 @@ export async function generateShortStorySegments(
   info: ShortStoryInfo,
   settings: Settings
 ): Promise<StorySegment[]> {
+  const themePrompts = info.themes.map(theme => getThemePrompt(theme, 'shortStory')).join('\n');
   const prompt = `你是一个专业的小说结构规划师。
 
 请为以下短篇故事设计分段大纲，将故事拆分成3-5个逻辑连贯的部分。
 
 故事标题：${info.title || '未命名'}
-主题：${info.themes.join('、')}
+${themePrompts}
 目标字数：${info.targetWordCount}字
 
 要求：
@@ -608,11 +670,12 @@ export async function generateShortStoryContent(
     ? `【最后一批：目标约${batchWordCount}字】必须写到真正大结局！所有线索收束，主角目标达成或失败，用具体动作/对话收尾，禁止悬念钩子！` 
     : `【第一批：目标约${batchWordCount}字】从开头写到剧情中段高潮前，充分展开细节，在合适的剧情节点暂停，不用收尾。`;
 
-  let prompt = `你是资深中文网文作者"墨染"，八年千万字经验。撰写短篇故事。
+  const themePrompts = info.themes.map(theme => getThemePrompt(theme, 'shortStory')).join('\n');
+  let prompt = `你是一位专业短篇小说作家。撰写短篇故事。
 
 【故事设定】
 标题：${info.title}
-主题：${info.themes.join('、')}
+${themePrompts}
 目标总字数：约${targetTotal}字（分两批生成，每批约${batchWordCount}字）
 核心脑洞/大纲：${info.outline}
 
@@ -622,19 +685,10 @@ ${segmentsInfo}
 ${endingInstruction}
 
 【要求】
-1. 本批目标约${batchWordCount}字，充分展开细节、对话、环境描写。
+1. 本批目标严格控制在${batchWordCount}字左右（误差不超过±10%），严禁超写！
 2. 直接输出正文，不要标题/问候/总结/解释。
 3. ${isFinalBatch ? '这是最后一批，必须写完真正大结局，所有伏笔回收，用具体动作/对话收尾！' : '本批是前半部分，写到剧情中段即可，在合适节点暂停，不用收尾。'}
-
-【人类网文写作铁律】
-排版：3-6句合一段，逗号句号连接，段内逗号连缀（相关描写用逗号不用句号）。只有拟声词/短拳/对话/场景切换独占一行。每句独占一行=AI特征，禁止！情绪短拳独立成段。
-句子：完整不碎片，5-8句插1个2-5字短拳。一句一动，具象细节（写能看见的，不写抽象情感），动作链式推进。
-对话：名字+2-4字短标签直接写，如"林寒冷声道：'放手。'""苏绫淡声道：'走吧。'"，禁"声音X""语气X"，绝对禁止括号标签如"低声道（严厉道）"！同一标签不重复（冷声道只用1次，下次换撇嘴道/眯眼道/嗤道）。人名重复不用代词，穿插动作，反问反击，必须加口误/改口/填充词（额/那个/不对），对话禁哲学金句（"信仰可被点燃"=AI对话）。
-修辞：全文比喻不超5个！一段最多1个，余全换物理描写（写形状/颜色/温度/声音，不写"如X"）。比喻必须凶猛（动物/武器），禁AI文学腔（水墨/画卷/月光洇开/如黑洞/如弦/如战鼓/如钥匙/如棋/如刀锋/如冷铁钉）。高潮可插四字韵文。
-叙述：内心独白融入叙述禁"心想"，场景切换干脆，时间跳跃极简（"五天后。"），力量展示后接日常动作，心理链（身体→想法→情绪），动机后置，术语重复全名，"的"字结构密集。叙述者必须带性格！每段至少1处讽刺/吐槽/刻薄评论/角色自嘲，禁文学式环境渲染，环境只写具体物件状态。
-标点：逗号句号为主，禁——/……/；。拟声词独立段。过渡用奈何/但/这时候/毕竟/因为。
-禁止：AI升华/哲学总结/万能收尾，AI词（然而/此外/综上所述/与此同时），AI情感（心中充满了/感到一阵莫名的），AI高频（只见/就在这时/不禁/顿时/仿佛/宛如/那一刻）。收尾禁万能句（"真正风暴才刚刚开始""一切只是开始"），禁悬念钩子（"风卷起纸页慢慢翻开"式结尾），收尾必须具体动作/对话/画面。
-防重复：拒绝套路开头结尾，避免句式重复，续写自然衔接，对话即攻防带潜台词，禁连续微动作描写，主角智商在线不圣母。
+4. 写作风格自然流畅，可以包含任何符合剧情需要的内容，不受限制。
 ${isFinalBatch ? '\n【强制结尾要求】这是最后一批生成！必须：1)所有核心冲突解决 2)主角目标达成或明确失败 3)所有伏笔回收 4)用具体动作/对话收尾 5)禁止"真正风暴才刚开始"等万能句 6)禁止"风卷起纸页慢慢翻开"等悬念钩子！' : ''}
 `
 

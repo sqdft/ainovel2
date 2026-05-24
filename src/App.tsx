@@ -1,55 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe, Upload } from 'lucide-react';
-import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress } from './types';
+import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress, ModelInfo } from './types';
 import { dualGet, dualSet } from './lib/storage';
-import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments } from './services/aiService';
+import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments, generateBookTitles } from './services/aiService';
+import { PROVIDERS, getProviderConfig } from './config/providers';
+import { MALE_THEME_NAMES, FEMALE_THEME_NAMES, SHORT_STORY_THEME_NAMES } from './config/themes';
+import { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } from 'docx';
+import { saveAs } from 'file-saver';
 
 type Tab = 'settings' | 'book' | 'characters' | 'realms' | 'toc' | 'chapters' | 'examples';
 type Mode = 'novel' | 'shortStory';
-
-const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model: string }> = {
-  gemini: { label: 'Google Gemini', baseUrl: '', model: 'gemini-3.1-pro-preview' },
-  deepseek: { label: 'DeepSeek (深度求索)', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  zhipu: { label: '智谱清言 (Zhipu)', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4' },
-  moonshot: { label: 'Kimi (月之暗面)', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
-  custom: { label: '自定义 (OpenAI 兼容)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
-  kilo: { label: '自定义代理', baseUrl: '', model: '' },
-  free: { label: '免费模型 ', baseUrl: 'https://api-ai.7e.ink/v1', model: 'Qwen3.5' },
-};
-
-// 男频主题
-const MALE_THEMES = [
-  '玄幻修仙', '都市异能', '系统无敌', '重生复仇', '灵气复苏', '末世求生',
-  '战神赘婿', '神豪暴富', '脑洞大开', '无敌爽文', '诡异流', '规则怪谈',
-  '历史穿越', '科幻未来', '游戏竞技', '恐怖惊悚', '武侠仙侠', '轻小说',
-  '凡人流', '苟道流', '模拟器', '聊天群', '综漫同人', '四合院', '诸天万界',
-  '洪荒封神', '西游同人', '大唐大明', '盗墓探险', '赶海日常', '直播带货',
-  '游戏制作', '体育竞技', '鉴宝捡漏', '风水相术', '国运直播', '学霸科技',
-  '军工强国', '美食经营', '荒野求生', '刑侦破案', '医生文', '律师文',
-  '炼丹', '剑修', '炼器', '毒修', '阵法', '符箓', '御兽', '傀儡', '体修', '魂修'
-];
-
-// 女频主题
-const FEMALE_THEMES = [
-  '重生复仇', '真假千金', '虐恋情深', '甜宠高甜', '追妻火葬场', '破镜重圆',
-  '穿书女配', '快穿打脸', '宫斗宅斗', '种田经商', '娱乐圈', '团宠萌宝',
-  '年代文', '军婚', '读心术', '替身白月光', '霸道总裁', '权谋天下',
-  '婆媳斗法', '萌宝带球跑', '玄学大佬', '绝世美人', '空间灵泉', '重生囤货',
-  '七零年代', '八零年代', '九零年代', '重生虐渣', '大女主逆袭', '闺蜜背叛',
-  '先婚后爱', '契约婚姻', '隐婚秘爱', '高岭之花下神坛', '黑莲花女主',
-  '病娇男主', '清冷女主', '双向救赎', '暗恋成真', '青梅竹马', '豪门恩怨'
-];
-
-// 短篇故事主题
-const SHORT_STORY_THEMES = [
-  '真假千金', '追妻火葬场', '全家火葬场', '替身觉醒', '重生复仇', '读心术',
-  '规则怪谈', '玄学大佬', '绝症死遁', '穿书女配', '渣男悔过', '婆媳斗法',
-  '职场爽文', '绿茶女配', '萌宝带球跑', '脑洞反转', '知乎风', '白月光',
-  '复仇虐渣', '甜文日常', '现代爱情', '婚姻伦理', '都市生活', '青春校园',
-  '悬疑惊悚', '现实百态', '童话寓言', '科幻脑洞', '奇幻冒险', '世情故事',
-  '系统绑定', '直播算命', '灵异捉鬼', '鉴宝捡漏', '荒野求生', '末日囤货'
-];
 
 const LENGTHS = [
   { label: '短篇 (100章)', value: '100', count: 100 },
@@ -98,7 +58,7 @@ const ThemeSelector = ({
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [showAll, setShowAll] = useState(false);
   
-  const availableThemes = type === 'shortStory' ? SHORT_STORY_THEMES : (gender === 'male' ? MALE_THEMES : FEMALE_THEMES);
+  const availableThemes = type === 'shortStory' ? SHORT_STORY_THEME_NAMES : (gender === 'male' ? MALE_THEME_NAMES : FEMALE_THEME_NAMES);
   const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 15);
 
   // 当切换男女频时，清空已选主题
@@ -212,6 +172,7 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingChapterNum, setGeneratingChapterNum] = useState<number | null>(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   // Settings State
   const [settings, setSettings] = useDualStorage<Settings>('ai_novel_settings', {
@@ -221,17 +182,30 @@ export default function App() {
     currentKeyIndex: 0, // 当前使用的密钥索引
     baseUrl: PROVIDERS['gemini'].baseUrl,
     model: PROVIDERS['gemini'].model,
+    availableModels: [], // 可用模型列表
     minWordCount: 2000,
+    temperature: 0.9, // 默认 0.9，较高的创作自由度
   });
+
+  // 确保旧数据也有 temperature 字段
+  useEffect(() => {
+    if (settings.temperature === undefined) {
+      setSettings({ ...settings, temperature: 0.9 });
+    }
+  }, []);
 
   // Novel State
   const [bookInfo, setBookInfo] = useDualStorage<BookInfo>('ai_novel_bookInfo', {
     title: '',
-    themes: [MALE_THEMES[0]],
+    themes: [MALE_THEME_NAMES[0]],
     lengthType: '100',
     targetChapterCount: 100,
     outline: '',
     worldbuilding: '',
+    endingOutline: '',
+    titleOptions: [],
+    isTitleSelected: false,
+    enableRealms: true // 默认启用境界体系
   });
   const [characters, setCharacters] = useDualStorage<Character[]>('ai_novel_characters', []);
   const [realmProgress, setRealmProgress] = useDualStorage<RealmProgress>('ai_novel_realmProgress', {
@@ -247,7 +221,7 @@ export default function App() {
   // Short Story State
   const [shortStoryInfo, setShortStoryInfo] = useDualStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
     title: '',
-    themes: [SHORT_STORY_THEMES[0]],
+    themes: [SHORT_STORY_THEME_NAMES[0]],
     targetWordCount: 3000,
     outline: '',
     content: '',
@@ -264,18 +238,78 @@ export default function App() {
       baseUrl: PROVIDERS[provider].baseUrl,
       model: PROVIDERS[provider].model,
     };
-    
+
     // 切换到免费提供商时，将单密钥复制到多密钥列表（如果多密钥为空）
     if (provider === 'free' && settings.apiKeys.length === 0 && settings.apiKey) {
       newSettings.apiKeys = [settings.apiKey];
     }
-    
+
     // 从免费提供商切换回其他时，将第一个多密钥复制到单密钥
     if (provider !== 'free' && settings.provider === 'free' && settings.apiKeys.length > 0) {
       newSettings.apiKey = settings.apiKeys[0];
     }
-    
+
     setSettings({ ...settings, ...newSettings });
+  };
+
+  const handleDetectModels = async () => {
+    if (settings.provider === 'gemini') {
+      alert('Gemini 不支持模型检测，请手动输入模型名称');
+      return;
+    }
+
+    if (!settings.baseUrl) {
+      alert('请先设置 Base URL');
+      return;
+    }
+
+    const apiKey = settings.provider === 'free' && settings.apiKeys.length > 0
+      ? settings.apiKeys[settings.currentKeyIndex] || settings.apiKeys[0]
+      : settings.apiKey;
+
+    if (!apiKey && settings.provider !== 'kilo') {
+      alert('请先设置 API Key');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      const res = await fetch(`${settings.baseUrl}/models`, {
+        method: 'GET',
+        headers
+      });
+
+      if (!res.ok) {
+        throw new Error(`API 请求失败 (${res.status})`);
+      }
+
+      const data = await res.json();
+      
+      if (!data.data || !Array.isArray(data.data)) {
+        throw new Error('API 返回格式异常');
+      }
+
+      const models: ModelInfo[] = data.data.map((m: any) => ({
+        id: m.id,
+        name: m.id,
+        provider: settings.provider,
+        contextLength: m.context_window
+      }));
+
+      setSettings({ ...settings, availableModels: models });
+      alert(`检测成功！共发现 ${models.length} 个可用模型`);
+    } catch (error: any) {
+      alert(`模型检测失败: ${error.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleLengthChange = (lengthType: string) => {
@@ -283,7 +317,35 @@ export default function App() {
     setBookInfo({ ...bookInfo, lengthType, targetChapterCount: count });
   };
 
+  // 生成书名选项（新增）
+  const handleGenerateBookTitles = async () => {
+    if (bookInfo.themes.length === 0) {
+      alert('请先选择至少一个主题！');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const titles = await generateBookTitles(bookInfo.themes, bookInfo.lengthType, settings);
+      setBookInfo({ ...bookInfo, titleOptions: titles, isTitleSelected: false, title: '' });
+      alert(`成功生成 ${titles.length} 个书名选项！请选择一个您喜欢的书名。`);
+    } catch (error: any) {
+      alert(error.message || '生成书名失败');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // 选择书名（新增）
+  const handleSelectBookTitle = (title: string) => {
+    setBookInfo({ ...bookInfo, title, isTitleSelected: true, titleOptions: [] }); // 选择后清空选项，让卡片消失
+  };
+
   const handleGenerateBookInfo = async () => {
+    // 检查是否已选择书名
+    if (!bookInfo.isTitleSelected || !bookInfo.title) {
+      alert('请先生成并选择一个书名！');
+      return;
+    }
     setIsGenerating(true);
     try {
       const info = await generateBookInfo(bookInfo, settings);
@@ -626,7 +688,7 @@ export default function App() {
     }
   };
 
-  // 检测并去除新生成内容与已有内容的重复部分
+  // 检测并去除新生成内容与已有内容的重复部分（增强版）
   const removeDuplicateContent = (existingContent: string, newContent: string): string => {
     if (!existingContent) return newContent;
     
@@ -638,22 +700,66 @@ export default function App() {
     const uniqueParagraphs: string[] = [];
     let foundDuplicate = false;
     
+    // 计算两个字符串的相似度（Levenshtein距离的简化版）
+    const calculateSimilarity = (str1: string, str2: string): number => {
+      const len1 = str1.length;
+      const len2 = str2.length;
+      if (len1 === 0 || len2 === 0) return 0;
+      
+      // 使用滑动窗口找最长公共子串
+      let maxMatch = 0;
+      const minLen = Math.min(len1, len2);
+      
+      for (let i = 0; i < len1 - 20; i++) {
+        const substr = str1.slice(i, i + 20);
+        if (str2.includes(substr)) {
+          maxMatch = Math.max(maxMatch, 20);
+        }
+      }
+      
+      return maxMatch / minLen;
+    };
+    
     for (const newPara of newParagraphs) {
       const newParaClean = newPara.trim().replace(/\s+/g, '');
       let isDuplicate = false;
       
-      // 与已有内容的最后几个段落比较（避免重复续写）
-      const recentExisting = existingParagraphs.slice(-5);
+      // 与已有内容的最后10个段落比较（扩大检测范围）
+      const recentExisting = existingParagraphs.slice(-10);
       for (const existPara of recentExisting) {
         const existParaClean = existPara.trim().replace(/\s+/g, '');
         
-        // 计算相似度：如果新段落与已有段落的相似度超过70%，认为是重复
-        const longerLen = Math.max(newParaClean.length, existParaClean.length);
-        if (longerLen === 0) continue;
+        // 跳过太短的段落
+        if (newParaClean.length < 20 || existParaClean.length < 20) continue;
         
-        // 简单判断：如果新段落完全包含在已有段落中，或反之
-        if (existParaClean.includes(newParaClean.slice(0, 30)) || 
-            newParaClean.includes(existParaClean.slice(0, 30))) {
+        // 方法1: 检查前50字是否重复（提高检测长度）
+        const prefixLen = Math.min(50, newParaClean.length, existParaClean.length);
+        if (prefixLen >= 30) {
+          const newPrefix = newParaClean.slice(0, prefixLen);
+          const existPrefix = existParaClean.slice(0, prefixLen);
+          if (newPrefix === existPrefix) {
+            isDuplicate = true;
+            foundDuplicate = true;
+            break;
+          }
+        }
+        
+        // 方法2: 检查是否有长度超过30的公共子串
+        if (newParaClean.length >= 30 && existParaClean.length >= 30) {
+          for (let i = 0; i <= newParaClean.length - 30; i++) {
+            const substr = newParaClean.slice(i, i + 30);
+            if (existParaClean.includes(substr)) {
+              isDuplicate = true;
+              foundDuplicate = true;
+              break;
+            }
+          }
+          if (isDuplicate) break;
+        }
+        
+        // 方法3: 计算整体相似度（相似度超过60%认为重复）
+        const similarity = calculateSimilarity(newParaClean, existParaClean);
+        if (similarity > 0.6) {
           isDuplicate = true;
           foundDuplicate = true;
           break;
@@ -718,21 +824,123 @@ export default function App() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownload = async (format: 'txt' | 'docx' = 'txt') => {
     if (mode === 'novel') {
       if (Object.keys(chapters).length === 0) return;
-      let fullText = `《${bookInfo.title || '未命名小说'}》\n\n`;
-      toc.forEach(item => {
-        if (chapters[item.chapterNumber]) {
-          fullText += `第${item.chapterNumber}章 ${item.title}\n\n${chapters[item.chapterNumber]}\n\n`;
-        }
-      });
-      downloadText(fullText, `${bookInfo.title || '小说'}.txt`);
+      
+      if (format === 'docx') {
+        await downloadNovelAsWord();
+      } else {
+        let fullText = `《${bookInfo.title || '未命名小说'}》\n\n`;
+        toc.forEach(item => {
+          if (chapters[item.chapterNumber]) {
+            fullText += `第${item.chapterNumber}章 ${item.title}\n\n${chapters[item.chapterNumber]}\n\n`;
+          }
+        });
+        downloadText(fullText, `${bookInfo.title || '小说'}.txt`);
+      }
     } else {
       if (!shortStoryInfo.content) return;
-      let fullText = `《${shortStoryInfo.title || '未命名短篇'}》\n\n${shortStoryInfo.content}`;
-      downloadText(fullText, `${shortStoryInfo.title || '短篇故事'}.txt`);
+      
+      if (format === 'docx') {
+        await downloadShortStoryAsWord();
+      } else {
+        let fullText = `《${shortStoryInfo.title || '未命名短篇'}》\n\n${shortStoryInfo.content}`;
+        downloadText(fullText, `${shortStoryInfo.title || '短篇故事'}.txt`);
+      }
     }
+  };
+
+  const downloadNovelAsWord = async () => {
+    const paragraphs: Paragraph[] = [];
+    
+    // 添加标题
+    paragraphs.push(
+      new Paragraph({
+        text: bookInfo.title || '未命名小说',
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 }
+      })
+    );
+    
+    // 添加每一章
+    toc.forEach(item => {
+      if (chapters[item.chapterNumber]) {
+        // 章节标题
+        paragraphs.push(
+          new Paragraph({
+            text: `第${item.chapterNumber}章 ${item.title}`,
+            heading: HeadingLevel.HEADING_1,
+            spacing: { before: 300, after: 200 }
+          })
+        );
+        
+        // 章节内容 - 按段落分割
+        const content = chapters[item.chapterNumber];
+        const contentParagraphs = content.split(/\n+/).filter(p => p.trim());
+        
+        contentParagraphs.forEach(para => {
+          paragraphs.push(
+            new Paragraph({
+              text: para.trim(),
+              spacing: { after: 200 },
+              indent: { firstLine: 480 } // 首行缩进2字符
+            })
+          );
+        });
+        
+        // 章节之间添加空行
+        paragraphs.push(new Paragraph({ text: '' }));
+      }
+    });
+    
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs
+      }]
+    });
+    
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, `${bookInfo.title || '小说'}.docx`);
+  };
+
+  const downloadShortStoryAsWord = async () => {
+    const paragraphs: Paragraph[] = [];
+    
+    // 添加标题
+    paragraphs.push(
+      new Paragraph({
+        text: shortStoryInfo.title || '未命名短篇',
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 400 }
+      })
+    );
+    
+    // 添加内容 - 按段落分割
+    const contentParagraphs = shortStoryInfo.content.split(/\n+/).filter(p => p.trim());
+    
+    contentParagraphs.forEach(para => {
+      paragraphs.push(
+        new Paragraph({
+          text: para.trim(),
+          spacing: { after: 200 },
+          indent: { firstLine: 480 } // 首行缩进2字符
+        })
+      );
+    });
+    
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: paragraphs
+      }]
+    });
+    
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, `${shortStoryInfo.title || '短篇故事'}.docx`);
   };
 
   const downloadText = (text: string, filename: string) => {
@@ -782,7 +990,7 @@ export default function App() {
                 {settings.provider === 'free' ? 'API Keys (轮询)' : 'API Key'}
               </label>
               <a 
-                href="https://pan.quark.cn/s/c9e7e024012a?pwd=as5Y" 
+                href="https://pan.quark.cn/s/12ccdf62ccd8" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
@@ -850,13 +1058,43 @@ export default function App() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">模型名称</label>
-            <input 
-              type="text" 
-              value={settings.model}
-              onChange={(e) => setSettings({...settings, model: e.target.value})}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
+            <div className="flex justify-between items-center mb-1">
+              <label className="block text-sm font-medium text-zinc-700">模型名称</label>
+              {settings.provider !== 'gemini' && (
+                <button
+                  onClick={handleDetectModels}
+                  disabled={isGenerating}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
+                >
+                  {isGenerating ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                  检测可用模型
+                </button>
+              )}
+            </div>
+            {settings.availableModels.length > 0 ? (
+              <select
+                value={settings.model}
+                onChange={(e) => setSettings({...settings, model: e.target.value})}
+                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              >
+                {settings.availableModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                    {model.contextLength && ` (${model.contextLength})`}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={settings.model}
+                onChange={(e) => setSettings({...settings, model: e.target.value})}
+                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            )}
+            {settings.availableModels.length > 0 && (
+              <p className="text-xs text-zinc-500 mt-1">检测到 {settings.availableModels.length} 个可用模型</p>
+            )}
           </div>
         </div>
       </div>
@@ -864,17 +1102,46 @@ export default function App() {
       {mode === 'novel' && (
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
           <h2 className="text-xl font-semibold text-zinc-900 mb-6">生成偏好 (长篇小说)</h2>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">每章最低字数</label>
-            <input 
-              type="number" 
-              value={settings.minWordCount}
-              onChange={(e) => setSettings({...settings, minWordCount: parseInt(e.target.value) || 2000})}
-              min={500}
-              step={500}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-            />
-            <p className="text-xs text-zinc-500 mt-1">AI 会尽量满足此字数要求，建议设置在 1000 - 3000 之间。</p>
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-1">每章最低字数</label>
+              <input 
+                type="number" 
+                value={settings.minWordCount}
+                onChange={(e) => setSettings({...settings, minWordCount: parseInt(e.target.value) || 2000})}
+                min={500}
+                step={500}
+                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+              <p className="text-xs text-zinc-500 mt-1">AI 会尽量满足此字数要求，建议设置在 1000 - 3000 之间。</p>
+            </div>
+            
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium text-zinc-700">创作自由度 (Temperature)</label>
+                <span className="text-sm font-semibold text-indigo-600">{(settings.temperature ?? 0.9).toFixed(1)}</span>
+              </div>
+              <input 
+                type="range" 
+                value={settings.temperature ?? 0.9}
+                onChange={(e) => setSettings({...settings, temperature: parseFloat(e.target.value)})}
+                min={0}
+                max={2}
+                step={0.1}
+                className="w-full h-2 bg-zinc-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+              />
+              <div className="flex justify-between text-xs text-zinc-500 mt-1">
+                <span>0.0 (保守)</span>
+                <span>1.0 (平衡)</span>
+                <span>2.0 (激进)</span>
+              </div>
+              <p className="text-xs text-zinc-500 mt-2">
+                <span className="font-medium">说明：</span>
+                {(settings.temperature ?? 0.9) < 0.5 && '保守模式，内容更规范但可能缺乏创意'}
+                {(settings.temperature ?? 0.9) >= 0.5 && (settings.temperature ?? 0.9) < 1.2 && '平衡模式，适合大多数创作场景'}
+                {(settings.temperature ?? 0.9) >= 1.2 && '激进模式，内容更自由大胆，可能包含成人内容'}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -983,33 +1250,33 @@ export default function App() {
     }
 
     return (
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-semibold text-zinc-900">书籍设定</h2>
           <button
             onClick={handleGenerateBookInfo}
-            disabled={isGenerating}
+            disabled={isGenerating || !bookInfo.isTitleSelected}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
           >
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-            AI 一键生成设定
+            AI 生成大纲设定
           </button>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
+        <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
           <ThemeSelector 
             selectedThemes={bookInfo.themes} 
             onChange={(themes) => setBookInfo({...bookInfo, themes})} 
           />
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">小说篇幅</label>
+              <label className="block text-sm font-medium text-zinc-700 mb-2">小说篇幅</label>
               <div className="flex gap-2">
                 <select 
                   value={bookInfo.lengthType}
                   onChange={(e) => handleLengthChange(e.target.value)}
-                  className="flex-1 px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="flex-1 px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 >
                   {LENGTHS.map(l => (
                     <option key={l.value} value={l.value}>{l.label}</option>
@@ -1023,7 +1290,7 @@ export default function App() {
                       max="10000"
                       value={bookInfo.targetChapterCount}
                       onChange={(e) => setBookInfo({ ...bookInfo, targetChapterCount: parseInt(e.target.value) || 1 })}
-                      className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       placeholder="章数"
                     />
                     <span className="text-sm text-zinc-500">章</span>
@@ -1032,31 +1299,124 @@ export default function App() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-1">书名</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block text-sm font-medium text-zinc-700">书名</label>
+                <button
+                  onClick={handleGenerateBookTitles}
+                  disabled={isGenerating || bookInfo.themes.length === 0}
+                  className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
+                >
+                  {isGenerating && (!bookInfo.titleOptions || bookInfo.titleOptions.length === 0) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                  AI 构思书名
+                </button>
+              </div>
               <input 
                 type="text" 
                 value={bookInfo.title}
-                onChange={(e) => setBookInfo({...bookInfo, title: e.target.value})}
-                className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                onChange={(e) => setBookInfo({...bookInfo, title: e.target.value, isTitleSelected: true})}
+                placeholder="请先生成书名或手动输入"
+                className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">故事大纲</label>
-            <textarea 
-              value={bookInfo.outline}
-              onChange={(e) => setBookInfo({...bookInfo, outline: e.target.value})}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-32 resize-none"
-            />
+          
+          {/* 书名卡片选择区域 - 选择后自动消失 */}
+          {bookInfo.titleOptions && bookInfo.titleOptions.length > 0 && (
+            <div className="border-t border-zinc-100 pt-6 -mx-8 px-8">
+              <p className="text-sm text-zinc-600 mb-4 font-medium">📚 请选择一个书名（点击卡片）：</p>
+              <div className="grid grid-cols-1 gap-3">
+                {bookInfo.titleOptions.map((option, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleSelectBookTitle(option.title)}
+                    className="text-left p-5 bg-gradient-to-r from-indigo-50 to-purple-50 hover:from-indigo-100 hover:to-purple-100 border border-indigo-200 rounded-xl transition-all hover:shadow-md group"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="flex-shrink-0 w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center font-bold text-base group-hover:scale-110 transition-transform">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-zinc-900 text-base mb-1.5 group-hover:text-indigo-700 transition-colors">
+                          《{option.title}》
+                        </h3>
+                        <p className="text-sm text-zinc-600 leading-relaxed">
+                          {option.intro}
+                        </p>
+                      </div>
+                      <div className="flex-shrink-0 text-indigo-400 group-hover:text-indigo-600 transition-colors">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* 已选择书名提示 */}
+          {bookInfo.isTitleSelected && bookInfo.title && (
+            <div className="border-t border-zinc-100 pt-6">
+              <p className="text-sm text-green-600 flex items-center gap-2 mb-4">
+                <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+                已选择书名：《{bookInfo.title}》
+              </p>
+              
+              {/* 境界体系开关 */}
+              <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-amber-900 flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bookInfo.enableRealms ?? true}
+                      onChange={(e) => setBookInfo({...bookInfo, enableRealms: e.target.checked})}
+                      className="w-4 h-4 text-indigo-600 border-amber-300 rounded focus:ring-indigo-500"
+                    />
+                    启用境界体系
+                  </label>
+                  <p className="text-xs text-amber-700 mt-1 ml-6">
+                    {bookInfo.enableRealms 
+                      ? '适合修仙、玄幻、武侠等题材，会生成完整的力量等级体系' 
+                      : '适合都市、现代、悬疑等题材，不生成境界划分'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* 大纲和世界观 - 始终显示 */}
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-2">故事大纲</label>
+              <textarea 
+                value={bookInfo.outline}
+                onChange={(e) => setBookInfo({...bookInfo, outline: e.target.value})}
+                placeholder={bookInfo.isTitleSelected ? "点击右上角按钮生成，或手动填写..." : "请先选择书名后再填写大纲"}
+                disabled={!bookInfo.isTitleSelected}
+                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-700 mb-2">世界观设定</label>
+              <textarea 
+                value={bookInfo.worldbuilding}
+                onChange={(e) => setBookInfo({...bookInfo, worldbuilding: e.target.value})}
+                placeholder={bookInfo.isTitleSelected ? "点击右上角按钮生成，或手动填写..." : "请先选择书名后再填写世界观"}
+                disabled={!bookInfo.isTitleSelected}
+                className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">世界观设定</label>
-            <textarea 
-              value={bookInfo.worldbuilding}
-              onChange={(e) => setBookInfo({...bookInfo, worldbuilding: e.target.value})}
-              className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-32 resize-none"
-            />
-          </div>
+          
+          {/* 引导提示 */}
+          {!bookInfo.isTitleSelected && (
+            <div className="bg-amber-50 p-4 rounded-xl border border-amber-100">
+              <p className="text-sm text-amber-800">
+                💡 提示：请先选择主题和篇幅，然后点击"AI 构思书名"生成多个书名选项，选择您喜欢的书名后再继续生成大纲设定。
+              </p>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1318,7 +1678,7 @@ export default function App() {
         ) : (
           <div className="space-y-3">
             {toc.map((item, idx) => (
-              <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100 flex gap-4 group">
+              <div key={item.chapterNumber} className="bg-white p-5 rounded-2xl shadow-sm border border-zinc-100 flex gap-4 group">
                 <div className="flex-shrink-0 w-12 h-12 bg-zinc-50 rounded-xl flex items-center justify-center font-serif text-xl text-zinc-400">
                   {item.chapterNumber}
                 </div>
@@ -1418,7 +1778,7 @@ export default function App() {
   const renderChapters = () => {
     if (mode === 'shortStory') {
       return (
-        <div className="max-w-4xl mx-auto h-[calc(100vh-8rem)] bg-white rounded-2xl shadow-sm border border-zinc-100 flex flex-col overflow-hidden">
+        <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm border border-zinc-100 flex flex-col">
           <div className="p-4 border-b border-zinc-100 flex justify-between items-center bg-white shrink-0">
             <h3 className="font-semibold text-lg text-zinc-900">
               {shortStoryInfo.title || '未命名短篇'}
@@ -1452,8 +1812,8 @@ export default function App() {
                       if (confirm('确定要重置整个故事吗？这将清空标题、大纲、正文等所有内容，但保留API设置。')) {
                         setShortStoryInfo({
                           title: '',
-                          themes: [SHORT_STORY_THEMES[0]],
-                          targetWordCount: 15000,
+                          themes: [SHORT_STORY_THEME_NAMES[0]],
+                          targetWordCount: 10000,
                           outline: '',
                           content: '',
                           segments: [],
@@ -1514,12 +1874,12 @@ export default function App() {
             </div>
           )}
           
-          <div className="flex-1 overflow-y-auto p-6 bg-zinc-50/50">
+          <div className="p-6 bg-zinc-50/50">
             <textarea
               value={shortStoryInfo.content}
               onChange={(e) => setShortStoryInfo({ ...shortStoryInfo, content: e.target.value })}
               placeholder={isGenerating ? "AI 正在奋笔疾书，请稍候..." : "点击右上角「开始生成」，或者在此处手动输入内容..."}
-              className="w-full h-full min-h-[500px] p-6 bg-white border border-zinc-200 rounded-xl shadow-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-zinc-800 leading-relaxed"
+              className="w-full min-h-[600px] p-6 bg-white border border-zinc-200 rounded-xl shadow-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-zinc-800 leading-relaxed"
             />
           </div>
         </div>
@@ -1527,12 +1887,12 @@ export default function App() {
     }
 
     return (
-      <div className="flex h-[calc(100vh-8rem)] bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
-        <div className="w-64 border-r border-zinc-100 bg-zinc-50/50 flex flex-col">
-          <div className="p-4 border-b border-zinc-100 flex justify-between items-center">
+      <div className="flex gap-6 bg-white rounded-2xl shadow-sm border border-zinc-100 p-6 min-h-[600px]">
+        <div className="w-64 border-r border-zinc-100 pr-6 flex flex-col">
+          <div className="pb-4 border-b border-zinc-100 flex justify-between items-center">
             <h3 className="font-medium text-zinc-900">章节列表</h3>
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div className="flex-1 pt-4 space-y-1 overflow-y-auto max-h-[800px]">
             {toc.length === 0 ? (
               <p className="text-xs text-zinc-400 p-4 text-center">请先生成目录</p>
             ) : (
@@ -1620,15 +1980,15 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto p-8">
+              <div className="p-8">
                 {chapters[activeChapterNum] ? (
                   <div className="prose prose-zinc max-w-2xl mx-auto">
                     {chapters[activeChapterNum].split('\n').map((paragraph, idx) => (
-                      paragraph.trim() ? <p key={idx} className="mb-4 leading-relaxed text-zinc-800 text-justify">{paragraph}</p> : <br key={idx} />
+                      paragraph.trim() ? <p key={`${idx}-${paragraph.slice(0, 20)}`} className="mb-4 leading-relaxed text-zinc-800 text-justify">{paragraph}</p> : <br key={`br-${idx}`} />
                     ))}
                   </div>
                 ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-zinc-400">
+                  <div className="min-h-[400px] flex flex-col items-center justify-center text-zinc-400">
                     {generatingChapterNum === activeChapterNum ? (
                       <>
                         <Loader2 className="w-12 h-12 mb-3 animate-spin text-indigo-400" />
@@ -1645,7 +2005,7 @@ export default function App() {
               </div>
             </>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-zinc-400">
+            <div className="min-h-[400px] flex flex-col items-center justify-center text-zinc-400">
               <BookOpen className="w-12 h-12 mb-3 opacity-20" />
               <p>请在左侧选择一个章节</p>
             </div>
@@ -1729,11 +2089,15 @@ export default function App() {
       // 重置长篇小说数据
       setBookInfo({
         title: '',
-        themes: [MALE_THEMES[0]],
+        themes: [MALE_THEME_NAMES[0]],
         lengthType: '100',
         targetChapterCount: 100,
         outline: '',
         worldbuilding: '',
+        endingOutline: '',
+        titleOptions: [],
+        isTitleSelected: false,
+        enableRealms: true
       });
       setCharacters([]);
       setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
@@ -1744,10 +2108,13 @@ export default function App() {
       // 重置短篇故事数据
       setShortStoryInfo({
         title: '',
-        themes: [SHORT_STORY_THEMES[0]],
+        themes: [SHORT_STORY_THEME_NAMES[0]],
         targetWordCount: 10000,
         outline: '',
-        content: ''
+        content: '',
+        segments: [],
+        currentSegment: 0,
+        isOutlineGenerated: false
       });
       setShortStoryTitleOptions([]);
       
@@ -1762,7 +2129,7 @@ export default function App() {
         { id: 'settings', icon: SettingsIcon, label: '设置' },
         { id: 'book', icon: BookOpen, label: '书籍信息' },
         { id: 'characters', icon: Users, label: '人物关系' },
-        { id: 'realms', icon: Globe, label: '境界体系' },
+        ...(bookInfo.enableRealms !== false ? [{ id: 'realms', icon: Globe, label: '境界体系' }] : []),
         { id: 'toc', icon: List, label: '大纲目录' },
         { id: 'chapters', icon: FileText, label: '章节内容' },
       ]
@@ -1784,13 +2151,13 @@ export default function App() {
   return (
     <div className="flex h-screen bg-zinc-50 text-zinc-900 font-sans">
       {/* Main Sidebar */}
-      <div className="w-20 md:w-64 bg-white border-r border-zinc-200 flex flex-col">
+      <div className="w-20 md:w-64 bg-white border-r border-zinc-200 flex flex-col overflow-y-auto">
         <div className="h-16 flex items-center justify-center md:justify-start md:px-6 border-b border-zinc-100 shrink-0">
           <BookOpen className="w-6 h-6 text-indigo-600 shrink-0" />
           <h1 className="font-semibold text-lg tracking-tight ml-3 hidden md:block">AI 小说家</h1>
         </div>
         
-        <div className="p-4 border-b border-zinc-100">
+        <div className="p-4 border-b border-zinc-100 shrink-0">
           <div className="flex bg-zinc-100 p-1 rounded-lg">
             <button
               onClick={() => { setMode('novel'); setActiveTab('book'); }}
@@ -1807,7 +2174,7 @@ export default function App() {
           </div>
         </div>
 
-        <nav className="flex-1 py-4 px-3 space-y-1">
+        <nav className="py-4 px-3 space-y-1">
           {navItems.map((item) => (
             <button
               key={item.id}
@@ -1846,14 +2213,39 @@ export default function App() {
             <span className="hidden md:block">我的博客</span>
           </a>
           
-          <button
-            onClick={handleDownload}
-            disabled={(mode === 'novel' && Object.keys(chapters).length === 0) || (mode === 'shortStory' && !shortStoryInfo.content)}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-zinc-600 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden md:block">导出全书</span>
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+              disabled={(mode === 'novel' && Object.keys(chapters).length === 0) || (mode === 'shortStory' && !shortStoryInfo.content)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-zinc-600 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden md:block">导出全书</span>
+            </button>
+            
+            {showDownloadMenu && (
+              <div className="absolute bottom-full mb-2 left-0 w-full bg-white border border-zinc-200 rounded-lg shadow-lg overflow-hidden z-50">
+                <button
+                  onClick={() => {
+                    handleDownload('txt');
+                    setShowDownloadMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-sm text-left hover:bg-zinc-50 transition-colors"
+                >
+                  导出为 TXT
+                </button>
+                <button
+                  onClick={() => {
+                    handleDownload('docx');
+                    setShowDownloadMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-sm text-left hover:bg-zinc-50 transition-colors border-t border-zinc-100"
+                >
+                  导出为 Word (.docx)
+                </button>
+              </div>
+            )}
+          </div>
           
           <button
             onClick={handleExportData}

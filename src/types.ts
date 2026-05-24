@@ -7,7 +7,9 @@ export interface Settings {
   currentKeyIndex: number; // 当前使用的密钥索引
   baseUrl: string;
   model: string;
+  availableModels: ModelInfo[]; // 可用模型列表
   minWordCount: number;
+  temperature: number; // 温度参数，控制创作自由度 (0-2)
 }
 
 export interface BookInfo {
@@ -18,6 +20,9 @@ export interface BookInfo {
   outline: string;
   worldbuilding: string;
   endingOutline: string;
+  titleOptions?: Array<{title: string, intro: string}>; // 生成的书名选项列表（含介绍）
+  isTitleSelected?: boolean; // 是否已选择书名
+  enableRealms?: boolean; // 是否启用境界体系
 }
 
 export interface StorySegment {
@@ -72,5 +77,12 @@ export interface TOCItem {
   chapterNumber: number;
   title: string;
   summary: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: Provider;
+  contextLength?: number;
 }
 
