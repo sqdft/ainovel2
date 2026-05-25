@@ -58,8 +58,12 @@ const ThemeSelector = ({
   const [gender, setGender] = useState<'male' | 'female'>('male');
   const [showAll, setShowAll] = useState(false);
   
+  // 防御性检查：确保 selectedThemes 是数组
+  const safeSelectedThemes = Array.isArray(selectedThemes) ? selectedThemes : [];
   const availableThemes = type === 'shortStory' ? SHORT_STORY_THEME_NAMES : (gender === 'male' ? MALE_THEME_NAMES : FEMALE_THEME_NAMES);
-  const displayThemes = showAll ? availableThemes : availableThemes.slice(0, 15);
+  // 防御性检查：确保 availableThemes 是数组
+  const safeAvailableThemes = Array.isArray(availableThemes) ? availableThemes : [];
+  const displayThemes = showAll ? safeAvailableThemes : safeAvailableThemes.slice(0, 15);
 
   // 当切换男女频时，清空已选主题
   const handleGenderChange = (newGender: 'male' | 'female') => {
@@ -92,7 +96,7 @@ const ThemeSelector = ({
             女频
           </button>
           <span className="text-xs text-zinc-400 ml-2">
-            已选 {selectedThemes.length}/5 个主题
+            已选 {safeSelectedThemes.length}/5 个主题
           </span>
         </div>
       )}
@@ -101,7 +105,7 @@ const ThemeSelector = ({
         <label className="block text-sm font-medium text-zinc-700">
           主题 {type === 'shortStory' && '(可多选，最多5个)'}
         </label>
-        {availableThemes.length > 15 && (
+        {safeAvailableThemes.length > 15 && (
           <button 
             onClick={() => setShowAll(!showAll)}
             className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
@@ -113,15 +117,15 @@ const ThemeSelector = ({
       
       <div className="flex flex-wrap gap-2">
         {displayThemes.map(theme => {
-          const isSelected = selectedThemes.includes(theme);
+          const isSelected = safeSelectedThemes.includes(theme);
           return (
             <button
               key={theme}
               onClick={() => {
                 if (isSelected) {
-                  onChange(selectedThemes.filter(t => t !== theme));
+                  onChange(safeSelectedThemes.filter(t => t !== theme));
                 } else {
-                  if (selectedThemes.length < 5) onChange([...selectedThemes, theme]);
+                  if (safeSelectedThemes.length < 5) onChange([...safeSelectedThemes, theme]);
                   else alert('最多只能选择5个主题');
                 }
               }}
@@ -139,10 +143,10 @@ const ThemeSelector = ({
         })}
       </div>
       
-      {selectedThemes.length > 0 && (
+      {safeSelectedThemes.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           <span className="text-xs text-zinc-500">已选:</span>
-          {selectedThemes.map(theme => (
+          {safeSelectedThemes.map(theme => (
             <span 
               key={theme} 
               className={`px-2 py-0.5 rounded text-xs ${
@@ -153,7 +157,7 @@ const ThemeSelector = ({
             >
               {theme}
               <button 
-                onClick={() => onChange(selectedThemes.filter(t => t !== theme))}
+                onClick={() => onChange(safeSelectedThemes.filter(t => t !== theme))}
                 className="ml-1 hover:text-red-500"
               >
                 ×
@@ -187,10 +191,21 @@ export default function App() {
     temperature: 0.9, // 默认 0.9，较高的创作自由度
   });
 
-  // 确保旧数据也有 temperature 字段
+  // 确保旧数据也有所有必需字段
   useEffect(() => {
-    if (settings.temperature === undefined) {
-      setSettings({ ...settings, temperature: 0.9 });
+    const needsUpdate = 
+      settings.temperature === undefined ||
+      !settings.apiKeys ||
+      !settings.availableModels;
+
+    if (needsUpdate) {
+      setSettings({
+        ...settings,
+        temperature: settings.temperature ?? 0.9,
+        apiKeys: settings.apiKeys ?? [],
+        availableModels: settings.availableModels ?? [],
+        currentKeyIndex: settings.currentKeyIndex ?? 0,
+      });
     }
   }, []);
 
@@ -233,19 +248,25 @@ export default function App() {
 
   // Handlers
   const handleProviderChange = (provider: Provider) => {
+    const providerConfig = PROVIDERS[provider];
+    if (!providerConfig) {
+      console.error('Provider config not found:', provider);
+      return;
+    }
+
     const newSettings: Partial<Settings> = {
       provider,
-      baseUrl: PROVIDERS[provider].baseUrl,
-      model: PROVIDERS[provider].model,
+      baseUrl: providerConfig.baseUrl,
+      model: providerConfig.model,
     };
 
     // 切换到免费提供商时，将单密钥复制到多密钥列表（如果多密钥为空）
-    if (provider === 'free' && settings.apiKeys.length === 0 && settings.apiKey) {
+    if (provider === 'free' && (!settings.apiKeys || settings.apiKeys.length === 0) && settings.apiKey) {
       newSettings.apiKeys = [settings.apiKey];
     }
 
     // 从免费提供商切换回其他时，将第一个多密钥复制到单密钥
-    if (provider !== 'free' && settings.provider === 'free' && settings.apiKeys.length > 0) {
+    if (provider !== 'free' && settings.provider === 'free' && settings.apiKeys && settings.apiKeys.length > 0) {
       newSettings.apiKey = settings.apiKeys[0];
     }
 
@@ -263,8 +284,8 @@ export default function App() {
       return;
     }
 
-    const apiKey = settings.provider === 'free' && settings.apiKeys.length > 0
-      ? settings.apiKeys[settings.currentKeyIndex] || settings.apiKeys[0]
+    const apiKey = settings.provider === 'free' && settings.apiKeys && settings.apiKeys.length > 0
+      ? settings.apiKeys[settings.currentKeyIndex || 0] || settings.apiKeys[0]
       : settings.apiKey;
 
     if (!apiKey && settings.provider !== 'kilo') {
@@ -319,7 +340,7 @@ export default function App() {
 
   // 生成书名选项（新增）
   const handleGenerateBookTitles = async () => {
-    if (bookInfo.themes.length === 0) {
+    if (!bookInfo.themes || bookInfo.themes.length === 0) {
       alert('请先选择至少一个主题！');
       return;
     }
@@ -377,7 +398,7 @@ export default function App() {
 
   // 生成境界体系
   const handleGenerateRealms = async () => {
-    if (!bookInfo.title || characters.length === 0) {
+    if (!bookInfo.title || !characters || characters.length === 0) {
       alert('请先生成书籍信息和人物！');
       return;
     }
@@ -431,7 +452,7 @@ export default function App() {
 
   // 删除人物
   const handleDeleteCharacter = (id: string) => {
-    if (characters.length <= 1) {
+    if (!characters || characters.length <= 1) {
       alert('至少保留一个角色');
       return;
     }
@@ -446,7 +467,7 @@ export default function App() {
   };
 
   const handleGenerateTOC = async () => {
-    if (!bookInfo.title || characters.length === 0) {
+    if (!bookInfo.title || !characters || characters.length === 0) {
       alert('请先生成或填写书籍信息！');
       return;
     }
@@ -473,7 +494,7 @@ export default function App() {
 
   // 只生成单章目录（接在末尾）
   const handleGenerateSingleChapterOutline = async () => {
-    if (!bookInfo.title || characters.length === 0) {
+    if (!bookInfo.title || !characters || characters.length === 0) {
       alert('请先生成或填写书籍信息！');
       return;
     }
@@ -518,7 +539,7 @@ export default function App() {
 
   // 重新生成指定章节的目录
   const handleRegenerateChapterOutline = async (chapterNum: number) => {
-    if (!bookInfo.title || characters.length === 0) {
+    if (!bookInfo.title || !characters || characters.length === 0) {
       alert('请先生成或填写书籍信息！');
       return;
     }
@@ -651,7 +672,7 @@ export default function App() {
 
   // Short Story Handlers
   const handleGenerateShortStoryTitles = async () => {
-    if (shortStoryInfo.themes.length === 0) {
+    if (!shortStoryInfo.themes || shortStoryInfo.themes.length === 0) {
       alert('请先选择至少一个主题！');
       return;
     }
@@ -977,7 +998,7 @@ export default function App() {
               <label className="block text-sm font-medium text-zinc-700 mb-1">Base URL</label>
               <input 
                 type="text" 
-                value={settings.baseUrl}
+                value={settings.baseUrl || ''}
                 onChange={(e) => setSettings({...settings, baseUrl: e.target.value})}
                 className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
@@ -1002,7 +1023,7 @@ export default function App() {
             {settings.provider === 'free' ? (
               // 免费提供商：多密钥输入
               <div className="space-y-2">
-                {settings.apiKeys.length === 0 ? (
+                {(!settings.apiKeys || settings.apiKeys.length === 0) ? (
                   <div className="text-sm text-zinc-500 italic">点击下方按钮添加密钥，支持添加多个密钥自动轮询</div>
                 ) : (
                   settings.apiKeys.map((key, index) => (
@@ -1011,7 +1032,7 @@ export default function App() {
                         type="password" 
                         value={key}
                         onChange={(e) => {
-                          const newKeys = [...settings.apiKeys];
+                          const newKeys = [...(settings.apiKeys || [])];
                           newKeys[index] = e.target.value;
                           setSettings({...settings, apiKeys: newKeys});
                         }}
@@ -1020,7 +1041,7 @@ export default function App() {
                       />
                       <button
                         onClick={() => {
-                          const newKeys = settings.apiKeys.filter((_, i) => i !== index);
+                          const newKeys = (settings.apiKeys || []).filter((_, i) => i !== index);
                           setSettings({...settings, apiKeys: newKeys});
                         }}
                         className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded"
@@ -1031,13 +1052,13 @@ export default function App() {
                   ))
                 )}
                 <button
-                  onClick={() => setSettings({...settings, apiKeys: [...settings.apiKeys, '']})}
+                  onClick={() => setSettings({...settings, apiKeys: [...(settings.apiKeys || []), '']})}
                   className="w-full py-2 text-sm text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg hover:bg-indigo-100 transition-colors"
                 >
                   + 添加密钥
                 </button>
                 <p className="text-xs text-zinc-500">
-                  已添加 {settings.apiKeys.length} 个密钥，系统会自动轮询使用。当某个密钥过期时会自动切换到下一个。
+                  已添加 {settings.apiKeys?.length || 0} 个密钥，系统会自动轮询使用。当某个密钥过期时会自动切换到下一个。
                 </p>
               </div>
             ) : (
@@ -1071,7 +1092,7 @@ export default function App() {
                 </button>
               )}
             </div>
-            {settings.availableModels.length > 0 ? (
+            {settings.availableModels && settings.availableModels.length > 0 ? (
               <select
                 value={settings.model}
                 onChange={(e) => setSettings({...settings, model: e.target.value})}
@@ -1087,12 +1108,12 @@ export default function App() {
             ) : (
               <input
                 type="text"
-                value={settings.model}
+                value={settings.model || ''}
                 onChange={(e) => setSettings({...settings, model: e.target.value})}
                 className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
             )}
-            {settings.availableModels.length > 0 && (
+            {settings.availableModels && settings.availableModels.length > 0 && (
               <p className="text-xs text-zinc-500 mt-1">检测到 {settings.availableModels.length} 个可用模型</p>
             )}
           </div>
@@ -1107,7 +1128,7 @@ export default function App() {
               <label className="block text-sm font-medium text-zinc-700 mb-1">每章最低字数</label>
               <input 
                 type="number" 
-                value={settings.minWordCount}
+                value={settings.minWordCount || 2000}
                 onChange={(e) => setSettings({...settings, minWordCount: parseInt(e.target.value) || 2000})}
                 min={500}
                 step={500}
@@ -1186,10 +1207,10 @@ export default function App() {
                   <label className="block text-sm font-medium text-zinc-700">故事标题</label>
                   <button
                     onClick={handleGenerateShortStoryTitles}
-                    disabled={isGenerating || shortStoryInfo.themes.length === 0}
+                    disabled={isGenerating || !shortStoryInfo.themes || shortStoryInfo.themes.length === 0}
                     className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
                   >
-                    {isGenerating && shortStoryTitleOptions.length === 0 ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
+                    {isGenerating && (!shortStoryTitleOptions || shortStoryTitleOptions.length === 0) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
                     AI 构思标题
                   </button>
                 </div>
@@ -1199,7 +1220,7 @@ export default function App() {
                   onChange={(e) => setShortStoryInfo({...shortStoryInfo, title: e.target.value})}
                   className="w-full px-3 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
-                {shortStoryTitleOptions.length > 0 && (
+                {shortStoryTitleOptions && shortStoryTitleOptions.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {shortStoryTitleOptions.map((t, idx) => (
                       <button
@@ -1303,7 +1324,7 @@ export default function App() {
                 <label className="block text-sm font-medium text-zinc-700">书名</label>
                 <button
                   onClick={handleGenerateBookTitles}
-                  disabled={isGenerating || bookInfo.themes.length === 0}
+                  disabled={isGenerating || !bookInfo.themes || bookInfo.themes.length === 0}
                   className="text-xs text-indigo-600 hover:text-indigo-700 flex items-center gap-1 disabled:opacity-50"
                 >
                   {isGenerating && (!bookInfo.titleOptions || bookInfo.titleOptions.length === 0) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />}
@@ -1445,7 +1466,7 @@ export default function App() {
         </div>
       </div>
 
-      {characters.length === 0 ? (
+      {(!characters || characters.length === 0) ? (
         <div className="text-center py-12 bg-white rounded-2xl border border-zinc-100 border-dashed">
           <Users className="w-12 h-12 text-zinc-300 mx-auto mb-3" />
           <p className="text-zinc-500">暂无人物设定，请点击右上角生成或手动添加。</p>
@@ -1503,7 +1524,7 @@ export default function App() {
           <h2 className="text-2xl font-semibold text-zinc-900">境界体系</h2>
           <button
             onClick={handleGenerateRealms}
-            disabled={isGenerating || !bookInfo.title || characters.length === 0}
+            disabled={isGenerating || !bookInfo.title || !characters || characters.length === 0}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
           >
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
@@ -1653,7 +1674,7 @@ export default function App() {
           <div className="flex gap-2">
             <button
               onClick={handleGenerateSingleChapterOutline}
-              disabled={isGenerating || characters.length === 0 || isComplete}
+              disabled={isGenerating || !characters || characters.length === 0 || isComplete}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-zinc-700 bg-zinc-100 rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
             >
               {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
@@ -1661,7 +1682,7 @@ export default function App() {
             </button>
             <button
               onClick={handleGenerateTOC}
-              disabled={isGenerating || characters.length === 0 || isComplete}
+              disabled={isGenerating || !characters || characters.length === 0 || isComplete}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-70 disabled:cursor-not-allowed shadow-sm"
             >
               {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
@@ -1670,7 +1691,7 @@ export default function App() {
           </div>
         </div>
 
-        {toc.length === 0 ? (
+        {(!toc || toc.length === 0) ? (
           <div className="text-center py-12 bg-white rounded-2xl border border-zinc-100 border-dashed">
             <List className="w-12 h-12 text-zinc-300 mx-auto mb-3" />
             <p className="text-zinc-500">暂无目录大纲，请确保已生成人物后点击生成。</p>
