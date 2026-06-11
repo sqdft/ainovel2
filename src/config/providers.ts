@@ -8,7 +8,7 @@ export const PROVIDERS: Record<Provider, { label: string, baseUrl: string, model
   openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
   custom: { label: '自定义 (OpenAI 兼容)', baseUrl: 'https://api.openai.com/v1', model: 'gpt-3.5-turbo' },
   kilo: { label: '自定义代理', baseUrl: '', model: '' },
-  free: { label: '免费模型 ', baseUrl: 'https://api-ai.7e.ink/v1', model: 'Qwen3.5' },
+  free: { label: '免费模型', baseUrl: 'https://api-ai.7e.ink/v1', model: 'Qwen3.5' },
 };
 
 export function getProviderConfig(provider: Provider) {
