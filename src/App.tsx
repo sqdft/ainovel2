@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Settings as SettingsIcon, Users, List, FileText, Download, Loader2, Wand2, Play, Feather, RefreshCw, Globe, Upload } from 'lucide-react';
-import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress, ModelInfo } from './types';
+import { Settings, BookInfo, Character, TOCItem, Provider, ShortStoryInfo, Realm, SubRealm, RealmProgress, ModelInfo, NovelMemory } from './types';
 import { dualGet, dualSet } from './lib/storage';
-import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments, generateBookTitles } from './services/aiService';
+import { generateBookInfo, generateCharacters, generateRealms, generateTOC, generateChapterContent, generateShortStoryContent, generateShortStoryTitles, generateShortStoryOutlineFromTitle, generateShortStorySegments, generateBookTitles, updateNovelMemory } from './services/aiService';
 import { PROVIDERS, getProviderConfig } from './config/providers';
 import { MALE_THEME_NAMES, FEMALE_THEME_NAMES, SHORT_STORY_THEME_NAMES } from './config/themes';
 import { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } from 'docx';
@@ -175,8 +175,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useDualStorage<Tab>('ai_novel_activeTab', 'settings');
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingChapterNum, setGeneratingChapterNum] = useState<number | null>(null);
+  const [isBatchGenerating, setIsBatchGenerating] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const stopBatchRef = useRef(false);
 
   // Settings State
   const [settings, setSettings] = useDualStorage<Settings>('ai_novel_settings', {
@@ -232,6 +234,14 @@ export default function App() {
   const [toc, setToc] = useDualStorage<TOCItem[]>('ai_novel_toc', []);
   const [chapters, setChapters] = useDualStorage<Record<number, string>>('ai_novel_chapters', {});
   const [activeChapterNum, setActiveChapterNum] = useDualStorage<number | null>('ai_novel_activeChapterNum', null);
+  const [novelMemory, setNovelMemory] = useDualStorage<NovelMemory>('ai_novel_memory', {
+    storySoFar: '',
+    characterStates: '',
+    openThreads: [],
+    resolvedThreads: [],
+    importantItems: [],
+    lastUpdatedChapter: 0
+  });
 
   // Short Story State
   const [shortStoryInfo, setShortStoryInfo] = useDualStorage<ShortStoryInfo>('ai_novel_shortStoryInfo', {
@@ -333,9 +343,68 @@ export default function App() {
     }
   };
 
+  const emptyNovelMemory: NovelMemory = {
+    storySoFar: '',
+    characterStates: '',
+    openThreads: [],
+    resolvedThreads: [],
+    importantItems: [],
+    lastUpdatedChapter: 0
+  };
+
+  const hasNovelDownstreamData = () => {
+    return characters.length > 0 || realmProgress.realms.length > 0 || toc.length > 0 || Object.keys(chapters).length > 0 || !!novelMemory.storySoFar;
+  };
+
+  const clearNovelDownstream = (level: 'book' | 'toc' | 'chapters') => {
+    if (level === 'book') {
+      setCharacters([]);
+      setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
+      setToc([]);
+    }
+    if (level === 'toc') {
+      setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
+      setToc([]);
+    }
+    setChapters({});
+    setActiveChapterNum(null);
+    setNovelMemory(emptyNovelMemory);
+  };
+
+  const confirmAndClearNovelDownstream = (message: string, level: 'book' | 'toc' | 'chapters') => {
+    if (!hasNovelDownstreamData()) return true;
+    if (!confirm(message)) return false;
+    clearNovelDownstream(level);
+    return true;
+  };
+
   const handleLengthChange = (lengthType: string) => {
+    if (!confirmAndClearNovelDownstream('修改篇幅会影响目录、境界推进和已生成正文。是否清空这些下游内容？', 'toc')) {
+      return;
+    }
     const count = LENGTHS.find(l => l.value === lengthType)?.count || 100;
     setBookInfo({ ...bookInfo, lengthType, targetChapterCount: count });
+  };
+
+  const handleBookThemesChange = (themes: string[]) => {
+    if (!confirmAndClearNovelDownstream('修改主题会影响书籍设定、人物、目录和正文。是否清空这些下游内容？', 'book')) {
+      return;
+    }
+    setBookInfo({ ...bookInfo, themes, titleOptions: [], isTitleSelected: false, title: '', outline: '', worldbuilding: '' });
+  };
+
+  const handleBookTitleInput = (title: string) => {
+    if (title !== bookInfo.title && !confirmAndClearNovelDownstream('修改书名会影响人物、目录和正文。是否清空这些下游内容？', 'book')) {
+      return;
+    }
+    setBookInfo({...bookInfo, title, isTitleSelected: !!title});
+  };
+
+  const handleBookPlanningFieldChange = (field: 'outline' | 'worldbuilding', value: string) => {
+    if (value !== bookInfo[field] && !confirmAndClearNovelDownstream('修改大纲或世界观会影响人物、目录和正文。是否清空这些下游内容？', 'book')) {
+      return;
+    }
+    setBookInfo({ ...bookInfo, [field]: value });
   };
 
   // 生成书名选项（新增）
@@ -346,7 +415,7 @@ export default function App() {
     }
     setIsGenerating(true);
     try {
-      const titles = await generateBookTitles(bookInfo.themes, bookInfo.lengthType, settings);
+      const titles = await generateBookTitles(bookInfo.themes, bookInfo.lengthType, settings, bookInfo.targetChapterCount);
       setBookInfo({ ...bookInfo, titleOptions: titles, isTitleSelected: false, title: '' });
       alert(`成功生成 ${titles.length} 个书名选项！请选择一个您喜欢的书名。`);
     } catch (error: any) {
@@ -358,6 +427,9 @@ export default function App() {
 
   // 选择书名（新增）
   const handleSelectBookTitle = (title: string) => {
+    if (title !== bookInfo.title && !confirmAndClearNovelDownstream('切换书名会清空人物、目录和正文，避免新旧设定混用。是否继续？', 'book')) {
+      return;
+    }
     setBookInfo({ ...bookInfo, title, isTitleSelected: true, titleOptions: [] }); // 选择后清空选项，让卡片消失
   };
 
@@ -370,6 +442,7 @@ export default function App() {
     setIsGenerating(true);
     try {
       const info = await generateBookInfo(bookInfo, settings);
+      clearNovelDownstream('book');
       setBookInfo({ ...bookInfo, ...info });
       setActiveTab('book');
     } catch (error: any) {
@@ -387,6 +460,7 @@ export default function App() {
     setIsGenerating(true);
     try {
       const chars = await generateCharacters(bookInfo, settings);
+      clearNovelDownstream('toc');
       setCharacters(chars);
       setActiveTab('characters');
     } catch (error: any) {
@@ -414,17 +488,28 @@ export default function App() {
       }, 0);
       const chapterRealmMap: Record<number, { realmIndex: number; subRealmIndex: number }> = {};
       let bpIdx = 0;
-      realms.forEach((realm, rIdx) => {
-        const subCount = realm.subRealms?.length || 1;
-        const startSub = rIdx === 0 ? 1 : 0; // 起始大境界从第1个小境界开始
-        for (let sIdx = startSub; sIdx < subCount; sIdx++) {
-          bpIdx++;
-          const t = bpIdx / totalBreakpoints;
-          const curvedT = Math.pow(t, 1.3);
-          const chapter = Math.min(Math.max(Math.round(curvedT * totalChapters), bpIdx * 3), totalChapters);
-          chapterRealmMap[chapter] = { realmIndex: rIdx, subRealmIndex: sIdx };
-        }
-      });
+      const usedChapters = new Set<number>();
+      if (totalBreakpoints > 0) {
+        realms.forEach((realm, rIdx) => {
+          const subCount = realm.subRealms?.length || 1;
+          const startSub = rIdx === 0 ? 1 : 0; // 起始大境界从第1个小境界开始
+          for (let sIdx = startSub; sIdx < subCount; sIdx++) {
+            bpIdx++;
+            const t = bpIdx / totalBreakpoints;
+            const curvedT = Math.pow(t, 1.3);
+            let chapter = Math.min(Math.max(Math.round(curvedT * totalChapters), bpIdx * 3), totalChapters);
+            while (usedChapters.has(chapter) && chapter < totalChapters) chapter++;
+            while (usedChapters.has(chapter) && chapter > 1) chapter--;
+            usedChapters.add(chapter);
+            chapterRealmMap[chapter] = { realmIndex: rIdx, subRealmIndex: sIdx };
+          }
+        });
+      } else {
+        realms.slice(1).forEach((_, idx) => {
+          const chapter = Math.min(totalChapters, Math.max(1, Math.round(((idx + 1) / realms.length) * totalChapters)));
+          chapterRealmMap[chapter] = { realmIndex: idx + 1, subRealmIndex: 0 };
+        });
+      }
       setRealmProgress({
         realms,
         protagonistCurrentRealmIndex: 0,
@@ -582,6 +667,63 @@ export default function App() {
     setToc(updatedTOC);
   };
 
+  const countTextLength = (text: string) => text.replace(/\s/g, '').length;
+
+  const findDuplicateRisk = (content: string, previousContent?: string) => {
+    if (!previousContent) return false;
+    const cleanCurrent = content.replace(/\s/g, '');
+    const cleanPrevious = previousContent.replace(/\s/g, '');
+    if (cleanCurrent.length < 120 || cleanPrevious.length < 120) return false;
+    for (let i = 0; i <= Math.min(cleanCurrent.length - 80, 800); i += 20) {
+      const sample = cleanCurrent.slice(i, i + 80);
+      if (sample && cleanPrevious.includes(sample)) return true;
+    }
+    return false;
+  };
+
+  const validateChapterContent = (content: string, tocItem: TOCItem, previousContent?: string) => {
+    const warnings: string[] = [];
+    const textLength = countTextLength(content);
+    const min = settings.minWordCount || 2000;
+    if (textLength < min * 0.7) warnings.push(`正文偏短：约 ${textLength} 字，低于目标 ${min} 字较多`);
+    if (textLength > min * 1.6) warnings.push(`正文偏长：约 ${textLength} 字，明显超过目标 ${min} 字`);
+    if (content.trim().startsWith(`第${tocItem.chapterNumber}章`) || content.trim().startsWith(tocItem.title)) {
+      warnings.push('正文开头疑似包含章节标题，建议删除标题后再导出');
+    }
+    if (findDuplicateRisk(content, previousContent)) {
+      warnings.push('正文与上一章存在较长重复片段，建议检查衔接处');
+    }
+    if (tocItem.chapterNumber === bookInfo.targetChapterCount && /刚刚开始|真正的风暴|新的征程|未完待续/.test(content.slice(-300))) {
+      warnings.push('最终章结尾仍像悬念钩子，建议重新生成或手动收尾');
+    }
+    return warnings;
+  };
+
+  const generateChapterWithQualityGate = async (tocItem: TOCItem, currentChapters: Record<number, string>, memory: NovelMemory = novelMemory) => {
+    const previousContents: string[] = [];
+    for (let i = 1; i < tocItem.chapterNumber; i++) {
+      if (currentChapters[i]) previousContents.push(currentChapters[i]);
+    }
+    const previousContent = previousContents[previousContents.length - 1];
+    const activeRealmProgress = bookInfo.enableRealms !== false ? realmProgress : undefined;
+    const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings, toc, activeRealmProgress, memory);
+    if (!content.trim()) {
+      throw new Error('AI 返回的章节正文为空，请重试。');
+    }
+    const warnings = validateChapterContent(content, tocItem, previousContent);
+    if (warnings.length > 0) {
+      alert(`第${tocItem.chapterNumber}章已生成，但发现质量提醒：\n${warnings.join('\n')}`);
+    }
+    let nextMemory = memory;
+    try {
+      nextMemory = await updateNovelMemory(memory, bookInfo, tocItem, content, settings);
+      setNovelMemory(nextMemory);
+    } catch (error) {
+      console.warn('更新全书记忆失败，本章正文已保留:', error);
+    }
+    return { content, nextMemory };
+  };
+
   const handleGenerateChapter = async (chapterNum: number) => {
     const tocItem = toc.find(t => t.chapterNumber === chapterNum);
     if (!tocItem) return;
@@ -589,12 +731,7 @@ export default function App() {
     setIsGenerating(true);
     setGeneratingChapterNum(chapterNum);
     try {
-      const previousContents: string[] = [];
-      for (let i = 1; i < chapterNum; i++) {
-        if (chapters[i]) previousContents.push(chapters[i]);
-      }
-
-      const content = await generateChapterContent(bookInfo, characters, tocItem, previousContents, settings, toc, realmProgress);
+      const { content } = await generateChapterWithQualityGate(tocItem, chapters);
       setChapters(prev => ({ ...prev, [chapterNum]: content }));
       setActiveChapterNum(chapterNum);
       setActiveTab('chapters');
@@ -647,18 +784,19 @@ export default function App() {
     }
 
     setIsGenerating(true);
+    setIsBatchGenerating(true);
+    stopBatchRef.current = false;
     
     let currentChapters = { ...chapters };
+    let currentMemory = novelMemory;
 
     for (const item of toGenerate) {
+      if (stopBatchRef.current) break;
       setGeneratingChapterNum(item.chapterNumber);
       setActiveChapterNum(item.chapterNumber);
       try {
-        const previousContents: string[] = [];
-        for (let i = 1; i < item.chapterNumber; i++) {
-          if (currentChapters[i]) previousContents.push(currentChapters[i]);
-        }
-        const content = await generateChapterContent(bookInfo, characters, item, previousContents, settings, toc, realmProgress);
+        const { content, nextMemory } = await generateChapterWithQualityGate(item, currentChapters, currentMemory);
+        currentMemory = nextMemory;
         currentChapters = { ...currentChapters, [item.chapterNumber]: content };
         setChapters(prev => ({ ...prev, [item.chapterNumber]: content }));
       } catch (error: any) {
@@ -667,7 +805,12 @@ export default function App() {
       }
     }
     setGeneratingChapterNum(null);
+    setIsBatchGenerating(false);
     setIsGenerating(false);
+  };
+
+  const handleStopBatchGenerate = () => {
+    stopBatchRef.current = true;
   };
 
   // Short Story Handlers
@@ -696,11 +839,12 @@ export default function App() {
     try {
       // 生成分段大纲
       const segments = await generateShortStorySegments(shortStoryInfo, settings);
+      const outlineText = segments.map(s => `${s.segmentNumber}. ${s.title}：${s.summary}`).join('\n');
       setShortStoryInfo({
         ...shortStoryInfo,
         segments,
         isOutlineGenerated: true,
-        outline: segments.map(s => `${s.segmentNumber}. ${s.title}：${s.summary}`).join('\n')
+        outline: shortStoryInfo.outline ? `${shortStoryInfo.outline}\n\n【AI 分段规划】\n${outlineText}` : outlineText
       });
     } catch (error: any) {
       alert(error.message || '生成大纲失败');
@@ -1287,7 +1431,7 @@ export default function App() {
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-zinc-100 space-y-6">
           <ThemeSelector 
             selectedThemes={bookInfo.themes} 
-            onChange={(themes) => setBookInfo({...bookInfo, themes})} 
+            onChange={handleBookThemesChange}
           />
           
           <div className="grid grid-cols-2 gap-6">
@@ -1334,7 +1478,7 @@ export default function App() {
               <input 
                 type="text" 
                 value={bookInfo.title}
-                onChange={(e) => setBookInfo({...bookInfo, title: e.target.value, isTitleSelected: true})}
+                onChange={(e) => handleBookTitleInput(e.target.value)}
                 placeholder="请先生成书名或手动输入"
                 className="w-full px-4 py-2.5 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
               />
@@ -1391,7 +1535,13 @@ export default function App() {
                     <input
                       type="checkbox"
                       checked={bookInfo.enableRealms ?? true}
-                      onChange={(e) => setBookInfo({...bookInfo, enableRealms: e.target.checked})}
+                      onChange={(e) => {
+                        const enableRealms = e.target.checked;
+                        setBookInfo({...bookInfo, enableRealms});
+                        if (!enableRealms) {
+                          setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
+                        }
+                      }}
                       className="w-4 h-4 text-indigo-600 border-amber-300 rounded focus:ring-indigo-500"
                     />
                     启用境界体系
@@ -1412,7 +1562,7 @@ export default function App() {
               <label className="block text-sm font-medium text-zinc-700 mb-2">故事大纲</label>
               <textarea 
                 value={bookInfo.outline}
-                onChange={(e) => setBookInfo({...bookInfo, outline: e.target.value})}
+                onChange={(e) => handleBookPlanningFieldChange('outline', e.target.value)}
                 placeholder={bookInfo.isTitleSelected ? "点击右上角按钮生成，或手动填写..." : "请先选择书名后再填写大纲"}
                 disabled={!bookInfo.isTitleSelected}
                 className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1422,7 +1572,7 @@ export default function App() {
               <label className="block text-sm font-medium text-zinc-700 mb-2">世界观设定</label>
               <textarea 
                 value={bookInfo.worldbuilding}
-                onChange={(e) => setBookInfo({...bookInfo, worldbuilding: e.target.value})}
+                onChange={(e) => handleBookPlanningFieldChange('worldbuilding', e.target.value)}
                 placeholder={bookInfo.isTitleSelected ? "点击右上角按钮生成，或手动填写..." : "请先选择书名后再填写世界观"}
                 disabled={!bookInfo.isTitleSelected}
                 className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-40 resize-none disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1976,12 +2126,12 @@ export default function App() {
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleBatchGenerateChapters}
-                    disabled={isGenerating}
+                    onClick={isBatchGenerating ? handleStopBatchGenerate : handleBatchGenerateChapters}
+                    disabled={isGenerating && !isBatchGenerating}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-70"
                   >
                     <Play className="w-4 h-4" />
-                    批量生成下20章
+                    {isBatchGenerating ? '暂停批量' : '批量生成下20章'}
                   </button>
                   {chapters[activeChapterNum] && (
                     <button
@@ -2003,11 +2153,11 @@ export default function App() {
               </div>
               <div className="p-8">
                 {chapters[activeChapterNum] ? (
-                  <div className="prose prose-zinc max-w-2xl mx-auto">
-                    {chapters[activeChapterNum].split('\n').map((paragraph, idx) => (
-                      paragraph.trim() ? <p key={`${idx}-${paragraph.slice(0, 20)}`} className="mb-4 leading-relaxed text-zinc-800 text-justify">{paragraph}</p> : <br key={`br-${idx}`} />
-                    ))}
-                  </div>
+                  <textarea
+                    value={chapters[activeChapterNum]}
+                    onChange={(e) => setChapters(prev => ({ ...prev, [activeChapterNum]: e.target.value }))}
+                    className="w-full min-h-[560px] max-w-3xl mx-auto block p-6 bg-zinc-50 border border-zinc-200 rounded-xl resize-y focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-zinc-800 leading-relaxed"
+                  />
                 ) : (
                   <div className="min-h-[400px] flex flex-col items-center justify-center text-zinc-400">
                     {generatingChapterNum === activeChapterNum ? (
@@ -2058,6 +2208,7 @@ export default function App() {
       realmProgress,
       toc,
       chapters,
+      novelMemory,
       activeChapterNum,
       shortStoryInfo,
       shortStoryTitleOptions,
@@ -2094,6 +2245,7 @@ export default function App() {
         if (data.realmProgress) setRealmProgress(data.realmProgress);
         if (data.toc) setToc(data.toc);
         if (data.chapters) setChapters(data.chapters);
+        if (data.novelMemory) setNovelMemory(data.novelMemory);
         if (data.activeChapterNum !== undefined) setActiveChapterNum(data.activeChapterNum);
         if (data.shortStoryInfo) setShortStoryInfo(data.shortStoryInfo);
         if (data.shortStoryTitleOptions) setShortStoryTitleOptions(data.shortStoryTitleOptions);
@@ -2124,6 +2276,7 @@ export default function App() {
       setRealmProgress({ realms: [], protagonistCurrentRealmIndex: 0, protagonistCurrentSubRealmIndex: 0, chapterRealmMap: {} });
       setToc([]);
       setChapters({});
+      setNovelMemory(emptyNovelMemory);
       setActiveChapterNum(null);
       
       // 重置短篇故事数据

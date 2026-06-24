@@ -25,6 +25,15 @@ export interface BookInfo {
   enableRealms?: boolean; // 是否启用境界体系
 }
 
+export interface NovelMemory {
+  storySoFar: string;
+  characterStates: string;
+  openThreads: string[];
+  resolvedThreads: string[];
+  importantItems: string[];
+  lastUpdatedChapter: number;
+}
+
 export interface StorySegment {
   segmentNumber: number;
   title: string;
@@ -85,4 +94,3 @@ export interface ModelInfo {
   provider: Provider;
   contextLength?: number;
 }
-

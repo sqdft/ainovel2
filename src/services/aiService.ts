@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, SubRealm, RealmProgress } from "../types";
+import { Settings, BookInfo, Character, TOCItem, ShortStoryInfo, StorySegment, Realm, SubRealm, RealmProgress, NovelMemory } from "../types";
 import { getThemePrompt } from "../config/themes";
 
 function extractJSON(text: string): any {
@@ -40,6 +40,143 @@ function extractJSON(text: string): any {
       throw new Error("AI 返回的数据格式不正确，请重试。");
     }
   }
+}
+
+function ensureArray<T = any>(value: any, fieldName: string): T[] {
+  if (Array.isArray(value)) return value;
+  throw new Error(`AI 返回的数据缺少有效的 ${fieldName} 数组，请重试。`);
+}
+
+function cleanText(value: any): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+const FINAL_ONLY_TITLE_PATTERN = /(大结局|最终章|终章|尾声|完结|结局篇|全书终)/;
+const EARLY_ENDING_TITLE_PATTERN = /(大结局|最终章|终章|尾声|完结|结局篇|全书终|终局|最终|最后一战|最后的决战|落幕|归宿|终点|终焉|谢幕|尘埃落定|一切终结)/;
+
+function getClosingTitleStart(targetChapterCount: number): number {
+  const closingWindow = Math.max(5, Math.ceil(targetChapterCount * 0.05));
+  return Math.max(1, targetChapterCount - closingWindow + 1);
+}
+
+function getEndingTitleIssue(title: string, chapterNumber: number, targetChapterCount: number): string | undefined {
+  if (FINAL_ONLY_TITLE_PATTERN.test(title) && chapterNumber !== targetChapterCount) {
+    return `第${chapterNumber}章标题“${title}”过早使用大结局/终章类词汇`;
+  }
+
+  const closingTitleStart = getClosingTitleStart(targetChapterCount);
+  if (EARLY_ENDING_TITLE_PATTERN.test(title) && chapterNumber < closingTitleStart) {
+    return `第${chapterNumber}章标题“${title}”带有结局感，只能放在第${closingTitleStart}章之后`;
+  }
+
+  return undefined;
+}
+
+function validateBookTitles(data: any): Array<{ title: string; intro: string }> {
+  return ensureArray<any>(data?.titles, 'titles')
+    .map(item => ({
+      title: cleanText(item?.title),
+      intro: cleanText(item?.intro),
+    }))
+    .filter(item => item.title && item.intro)
+    .slice(0, 5);
+}
+
+function validateCharacters(data: any): Character[] {
+  const names = new Set<string>();
+  const characters = ensureArray<any>(data?.characters, 'characters')
+    .map((item, index) => ({
+      id: cleanText(item?.id) || `char${index + 1}`,
+      name: cleanText(item?.name),
+      role: cleanText(item?.role),
+      description: cleanText(item?.description),
+    }))
+    .filter(item => item.name && item.role && item.description)
+    .filter(item => {
+      if (names.has(item.name)) return false;
+      names.add(item.name);
+      return true;
+    });
+
+  if (characters.length === 0) {
+    throw new Error('AI 返回的人物设定为空或字段不完整，请重试。');
+  }
+  return characters;
+}
+
+function validateTOC(data: any, startIndex: number, endIndex: number, existingTitles: string[], targetChapterCount = endIndex): TOCItem[] {
+  const titleSet = new Set(existingTitles.map(title => title.trim()));
+  const byChapter = new Map<number, TOCItem>();
+  const invalidTitleIssues: string[] = [];
+
+  ensureArray<any>(data?.chapters, 'chapters').forEach(item => {
+    const chapterNumber = Number(item?.chapterNumber);
+    const title = cleanText(item?.title);
+    const summary = cleanText(item?.summary);
+    if (!Number.isInteger(chapterNumber) || chapterNumber < startIndex || chapterNumber > endIndex) return;
+    if (!title || !summary || titleSet.has(title)) return;
+    const endingTitleIssue = getEndingTitleIssue(title, chapterNumber, targetChapterCount);
+    if (endingTitleIssue) {
+      invalidTitleIssues.push(endingTitleIssue);
+      return;
+    }
+    if (!byChapter.has(chapterNumber)) {
+      byChapter.set(chapterNumber, { chapterNumber, title, summary });
+      titleSet.add(title);
+    }
+  });
+
+  const chapters = Array.from(byChapter.values()).sort((a, b) => a.chapterNumber - b.chapterNumber);
+  const expectedCount = endIndex - startIndex + 1;
+  if (chapters.length !== expectedCount) {
+    if (invalidTitleIssues.length > 0) {
+      throw new Error(`AI 返回的目录标题节奏不合理：${invalidTitleIssues[0]}，请重试。`);
+    }
+    throw new Error(`AI 返回的目录不完整：期望 ${expectedCount} 章，实际有效 ${chapters.length} 章，请重试。`);
+  }
+  return chapters;
+}
+
+function validateRealms(data: any): Realm[] {
+  const realms = ensureArray<any>(data?.realms, 'realms')
+    .map((item, index) => ({
+      id: cleanText(item?.id) || `realm${index + 1}`,
+      name: cleanText(item?.name),
+      level: Number(item?.level) || index + 1,
+      description: cleanText(item?.description),
+      breakthroughCondition: cleanText(item?.breakthroughCondition) || '已至巅峰',
+      subRealms: Array.isArray(item?.subRealms)
+        ? item.subRealms.map((sub: any) => ({
+            name: cleanText(sub?.name),
+            description: cleanText(sub?.description),
+          })).filter((sub: SubRealm) => sub.name)
+        : [],
+    }))
+    .filter(item => item.name && item.description);
+
+  if (realms.length === 0) {
+    throw new Error('AI 返回的境界体系为空或字段不完整，请重试。');
+  }
+  return realms;
+}
+
+function validateSegments(data: any): StorySegment[] {
+  const rawSegments = Array.isArray(data) ? data : data?.segments;
+  const segments = ensureArray<any>(rawSegments, 'segments')
+    .map((seg, index) => ({
+      segmentNumber: Number(seg?.segmentNumber) || index + 1,
+      title: cleanText(seg?.title),
+      wordCount: Number(seg?.wordCount) || 0,
+      summary: cleanText(seg?.summary),
+      content: '',
+      isGenerated: false,
+    }))
+    .filter(seg => seg.title && seg.summary);
+
+  if (segments.length === 0) {
+    throw new Error('AI 返回的分段大纲为空或字段不完整，请重试。');
+  }
+  return segments;
 }
 
 // 使用单个密钥调用 OpenAI 兼容 API
@@ -236,8 +373,11 @@ async function callAI(prompt: string, settings: Settings, expectJSON: boolean = 
 }
 
 // 生成书名选项（新增）
-export async function generateBookTitles(themes: string[], lengthType: string, settings: Settings): Promise<Array<{title: string, intro: string}>> {
-  const lengthText = `${LENGTHS.find(l => l.value === lengthType)?.count || 100}章`;
+export async function generateBookTitles(themes: string[], lengthType: string, settings: Settings, targetChapterCount?: number): Promise<Array<{title: string, intro: string}>> {
+  const chapterCount = lengthType === 'custom'
+    ? targetChapterCount || 100
+    : LENGTHS.find(l => l.value === lengthType)?.count || 100;
+  const lengthText = `${chapterCount}章`;
   const themePrompts = themes.map(theme => getThemePrompt(theme, 'novel')).join('\n');
   
   const prompt = `你是一位深谙爆款逻辑的网文主编。请根据以下主题，为一部${lengthText}的长篇小说构思 5 个极具吸引力、点击率极高的爆款书名。
@@ -264,7 +404,11 @@ ${themePrompts}
 
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);
-  return data.titles || [];
+  const titles = validateBookTitles(data);
+  if (titles.length === 0) {
+    throw new Error('AI 返回的书名选项为空或字段不完整，请重试。');
+  }
+  return titles;
 }
 
 // LENGTHS 常量定义（用于上面的函数）
@@ -352,7 +496,7 @@ ${themePrompts}
 
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);
-  return data.characters || [];
+  return validateCharacters(data);
 }
 
 // 生成境界体系
@@ -395,7 +539,7 @@ ${themePrompts}
 
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);
-  return data.realms || [];
+  return validateRealms(data);
 }
 
 export async function generateTOC(bookInfo: BookInfo, characters: Character[], settings: Settings, startIndex: number, batchSize: number, existingTitles: string[] = []): Promise<TOCItem[]> {
@@ -408,6 +552,7 @@ export async function generateTOC(bookInfo: BookInfo, characters: Character[], s
 
   const progressPercentage = Math.round((endIndex / bookInfo.targetChapterCount) * 100);
   const remainingChapters = bookInfo.targetChapterCount - endIndex;
+  const closingTitleStart = getClosingTitleStart(bookInfo.targetChapterCount);
   
   let pacingInstruction = '';
   if (endIndex === bookInfo.targetChapterCount) {
@@ -440,6 +585,11 @@ ${themePrompts}
 ${charsStr}${existingTitlesStr}
 ${pacingInstruction}
 
+【章节标题节奏硬性规则】
+1. 第 ${closingTitleStart} 章之前，标题禁止出现“大结局、最终章、终章、尾声、完结、终局、最终、最后一战、最后的决战、落幕、归宿、终点、终焉、谢幕、尘埃落定、一切终结”等结局性词汇。
+2. “大结局、最终章、终章、尾声、完结、结局篇、全书终”只能用于第 ${bookInfo.targetChapterCount} 章，其他章节绝对不能使用。
+3. 早中期标题要体现阶段冲突、转折、线索或人物行动，不要提前剧透最终胜负或故事收束。
+
 请严格以 JSON 格式返回一个对象，包含一个 \`chapters\` 字段，其值为数组。数组中每个对象包含以下字段：
 - chapterNumber (数字): 章节序号（必须从 ${startIndex} 到 ${endIndex}）
 - title (字符串): 章节标题（必须新颖，绝对不能与已生成的章节标题重复）
@@ -448,7 +598,7 @@ ${pacingInstruction}
 
   const responseText = await callAI(prompt, settings, true);
   const data = extractJSON(responseText);
-  return data.chapters || [];
+  return validateTOC(data, startIndex, endIndex, existingTitles, bookInfo.targetChapterCount);
 }
 
 export async function generateChapterContent(
@@ -458,7 +608,8 @@ export async function generateChapterContent(
   previousChapters: string[],
   settings: Settings,
   toc: TOCItem[],
-  realmProgress?: RealmProgress
+  realmProgress?: RealmProgress,
+  novelMemory?: NovelMemory
 ): Promise<string> {
   const charsStr = characters.map(c => `- ${c.name} (${c.role}): ${c.description}`).join('\n');
   
@@ -495,6 +646,7 @@ ${pacingContext}
 
 【人物设定】
 ${charsStr}
+${novelMemory ? `\n【全书记忆】\n故事进展：${novelMemory.storySoFar || '暂无'}\n人物状态：${novelMemory.characterStates || '暂无'}\n未回收伏笔：${novelMemory.openThreads.join('；') || '暂无'}\n已解决线索：${novelMemory.resolvedThreads.join('；') || '暂无'}\n重要物品/设定：${novelMemory.importantItems.join('；') || '暂无'}\n请严格延续这些状态，不要让角色关系、伏笔、物品归属和已发生事件前后矛盾。\n` : ''}
 ${realmProgress && realmProgress.realms.length > 0 ? (() => {
   // 根据chapterRealmMap自动推算当前章节主角所在境界（大境界+小境界）
   let currentRealmIdx = 0;
@@ -571,6 +723,55 @@ ${tocItem.summary}
   return responseText.trim();
 }
 
+export async function updateNovelMemory(
+  previousMemory: NovelMemory,
+  bookInfo: BookInfo,
+  tocItem: TOCItem,
+  chapterContent: string,
+  settings: Settings
+): Promise<NovelMemory> {
+  const prompt = `你是小说长线连续性编辑。请根据当前章节，更新全书记忆，帮助后续章节保持设定一致。
+
+【书籍信息】
+书名：${bookInfo.title}
+总大纲：${bookInfo.outline}
+
+【原有全书记忆】
+故事进展：${previousMemory.storySoFar || '暂无'}
+人物状态：${previousMemory.characterStates || '暂无'}
+未回收伏笔：${previousMemory.openThreads.join('；') || '暂无'}
+已解决线索：${previousMemory.resolvedThreads.join('；') || '暂无'}
+重要物品/设定：${previousMemory.importantItems.join('；') || '暂无'}
+
+【新章节】
+第${tocItem.chapterNumber}章 ${tocItem.title}
+章节摘要：${tocItem.summary}
+章节正文：
+${chapterContent.slice(0, 6000)}
+
+请严格返回 JSON 对象：
+{
+  "storySoFar": "用300字以内概括截至本章的主线进展",
+  "characterStates": "用300字以内记录主要人物当前关系、立场、伤势、目标、情绪变化",
+  "openThreads": ["仍未解决的伏笔/矛盾/承诺，最多10条"],
+  "resolvedThreads": ["本章已经解决或兑现的线索，最多10条"],
+  "importantItems": ["重要物品、能力、地点、组织和设定状态，最多10条"],
+  "lastUpdatedChapter": ${tocItem.chapterNumber}
+}
+不要输出其他文字。`;
+
+  const responseText = await callAI(prompt, settings, true);
+  const data = extractJSON(responseText);
+  return {
+    storySoFar: cleanText(data.storySoFar).slice(0, 600),
+    characterStates: cleanText(data.characterStates).slice(0, 600),
+    openThreads: Array.isArray(data.openThreads) ? data.openThreads.map(cleanText).filter(Boolean).slice(0, 10) : previousMemory.openThreads,
+    resolvedThreads: Array.isArray(data.resolvedThreads) ? data.resolvedThreads.map(cleanText).filter(Boolean).slice(0, 10) : previousMemory.resolvedThreads,
+    importantItems: Array.isArray(data.importantItems) ? data.importantItems.map(cleanText).filter(Boolean).slice(0, 10) : previousMemory.importantItems,
+    lastUpdatedChapter: Number(data.lastUpdatedChapter) || tocItem.chapterNumber,
+  };
+}
+
 export async function generateShortStoryTitles(themes: string[], settings: Settings): Promise<string[]> {
   const themePrompts = themes.map(theme => getThemePrompt(theme, 'shortStory')).join('\n');
   const prompt = `你是一位深谙爆款逻辑的网文主编。请根据以下主题，为一篇7k-12k字的短篇小说构思 5 个极具吸引力、点击率极高的爆款标题。
@@ -619,6 +820,7 @@ export async function generateShortStorySegments(
 故事标题：${info.title || '未命名'}
 ${themePrompts}
 目标字数：${info.targetWordCount}字
+用户核心脑洞/已有大纲：${info.outline || '暂无，请根据标题和主题原创设计'}
 
 要求：
 1. 每个部分应该有独立的标题（如：开端、发展、高潮、结局等）
@@ -639,13 +841,7 @@ ${themePrompts}
 
   const response = await callAI(prompt, settings, true);
   const segments = extractJSON(response);
-  
-  // 添加content和isGenerated字段
-  return segments.map((seg: any) => ({
-    ...seg,
-    content: '',
-    isGenerated: false
-  }));
+  return validateSegments(segments);
 }
 
 // 生成指定分段内容
@@ -701,3 +897,11 @@ ${isFinalBatch ? '\n【强制结尾要求】这是最后一批生成！必须：
   const responseText = await callAI(prompt, settings, false);
   return responseText.trim();
 }
+
+export const __test__ = {
+  extractJSON,
+  validateBookTitles,
+  validateCharacters,
+  validateTOC,
+  validateSegments,
+};

@@ -43,8 +43,8 @@ export async function idbSet<T>(key: string, value: T): Promise<void> {
       req.onsuccess = () => resolve();
       req.onerror = () => reject(req.error);
     });
-  } catch {
-    // IndexedDB 写入失败静默处理
+  } catch (error) {
+    console.warn(`IndexedDB 写入失败：${key}`, error);
   }
 }
 
@@ -61,8 +61,8 @@ function lsGet<T>(key: string): T | null {
 function lsSet<T>(key: string, value: T): void {
   try {
     window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // localStorage 满了静默处理
+  } catch (error) {
+    console.warn(`localStorage 写入失败：${key}`, error);
   }
 }
 
